@@ -14,14 +14,12 @@ app.use(cors());
 app.use(express.json());
 
 // Routes
-// --- UNIFIED DASHBOARD API ---
-app.get('/api/dashboard', async (req, res) => {
+// Dashboard API
+app.get('/api/dashboard/stats', async (req, res) => {
     try {
-        // 1. Get Counts
         const studentCount = await query('SELECT count(*) FROM students');
-        const teacherCount = await query('SELECT count(*) FROM teachers');
         const programCount = await query('SELECT count(*) FROM programs');
-        // Real calculations for "Active" percentages
+        // Real calculations for "Active" percentages (proxy for attendance/engagement)
         const activeStudentCount = await query("SELECT count(*) FROM students WHERE status = 'Active'");
         const activeTeacherCount = await query("SELECT count(*) FROM teachers WHERE status = 'Active'");
         const docCount = await query('SELECT count(*) FROM documents');
@@ -34,31 +32,47 @@ app.get('/api/dashboard', async (req, res) => {
         const studentPercentage = totalStudents > 0 ? Math.round((activeStudents / totalStudents) * 100) + "%" : "0%";
         const teacherPercentage = totalTeachers > 0 ? Math.round((activeTeachers / totalTeachers) * 100) + "%" : "0%";
 
-        const stats = {
+        res.json({
             students: totalStudents,
             teachers: totalTeachers,
             programs: parseInt(programCount.rows[0].count),
-            documents: parseInt(docCount.rows[0].count || 0),
+            documents: parseInt(docCount.rows[0].count),
             studentAttendance: studentPercentage,
             teacherAttendance: teacherPercentage,
             activeStudents,
             activeTeachers
-        };
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
 
-        // 2. Get Recent Activities
-        const activitiesResult = await query('SELECT * FROM activities ORDER BY created_at DESC LIMIT 5');
+app.get('/api/dashboard/activities', async (req, res) => {
+    try {
+        const result = await query('SELECT * FROM activities ORDER BY created_at DESC LIMIT 5');
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
 
-        // 3. Get Upcoming Alerts
-        const alertsResult = await query('SELECT * FROM alerts ORDER BY due_date ASC LIMIT 3');
+app.get('/api/dashboard/alerts', async (req, res) => {
+    try {
+        const result = await query('SELECT * FROM alerts ORDER BY due_date ASC');
 
-        // Process Alerts (Days Logic)
-        const processAlerts = alertsResult.rows.map(alert => {
+        // Calculate days from now for each alert
+        const alertsWithDays = result.rows.map(alert => {
             const due = new Date(alert.due_date);
             const today = new Date();
+            // Reset times to compare dates only
             due.setHours(0, 0, 0, 0);
             today.setHours(0, 0, 0, 0);
+
             const diffTime = due - today;
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
             return {
                 ...alert,
                 daysFromNow: diffDays,
@@ -66,16 +80,10 @@ app.get('/api/dashboard', async (req, res) => {
             };
         });
 
-        // 4. Send All Data Together
-        res.json({
-            stats,
-            activities: activitiesResult.rows,
-            alerts: processAlerts
-        });
-
+        res.json(alertsWithDays);
     } catch (err) {
         console.error(err);
-        res.status(500).send("Server Error");
+        res.status(500).json({ message: 'Server error' });
     }
 });
 
@@ -207,71 +215,6 @@ app.post('/api/students', async (req, res) => {
     }
 });
 
-// --- CALENDAR API ---
-app.get('/api/calendar/events', async (req, res) => {
-    try {
-        const result = await query('SELECT * FROM calendar_events ORDER BY date ASC');
-        // Format for frontend
-        const events = result.rows.map(event => {
-            const d = new Date(event.date);
-            return {
-                id: event.id,
-                day: d.getDate(),
-                month: d.getMonth(),
-                year: d.getFullYear(),
-                title: event.title,
-                fullText: event.description,
-                type: event.type,
-                date: event.date // Keep original date string too
-            };
-        });
-        res.json(events);
-    } catch (err) {
-        console.error("Error fetching events:", err);
-        res.status(500).send("Server Error");
-    }
-});
-
-app.post('/api/calendar/events', async (req, res) => {
-    const { title, description, date, type } = req.body;
-    try {
-        const result = await query(
-            'INSERT INTO calendar_events (title, description, date, type) VALUES ($1, $2, $3, $4) RETURNING *',
-            [title, description, date, type]
-        );
-        res.status(201).json(result.rows[0]);
-    } catch (err) {
-        console.error("Error creating event:", err);
-        res.status(500).send("Server Error");
-    }
-});
-
-app.put('/api/calendar/events/:id', async (req, res) => {
-    const { id } = req.params;
-    const { title, description, type } = req.body; // Assuming date changes handled separately or not needed yet
-    try {
-        const result = await query(
-            'UPDATE calendar_events SET title = $1, description = $2, type = $3 WHERE id = $4 RETURNING *',
-            [title, description, type, id]
-        );
-        res.json(result.rows[0]);
-    } catch (err) {
-        console.error("Error updating event:", err);
-        res.status(500).send("Server Error");
-    }
-});
-
-app.delete('/api/calendar/events/:id', async (req, res) => {
-    const { id } = req.params;
-    try {
-        await query('DELETE FROM calendar_events WHERE id = $1', [id]);
-        res.json({ message: "Event deleted" });
-    } catch (err) {
-        console.error("Error deleting event:", err);
-        res.status(500).send("Server Error");
-    }
-});
-
 // Test route
 app.get('/', (req, res) => {
     res.send('API is running');
@@ -280,3 +223,5 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
+/q
+
