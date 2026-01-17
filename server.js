@@ -472,6 +472,62 @@ app.delete('/api/programs/:id', async (req, res) => {
     }
 });
 
+// --- SUBJECTS API ---
+
+// 1. GET All Subjects
+app.get('/api/subjects', async (req, res) => {
+    try {
+        const result = await query('SELECT * FROM subjects ORDER BY id ASC');
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Server Error');
+    }
+});
+
+// 2. ADD Subject
+app.post('/api/subjects', async (req, res) => {
+    const { name, programId, year, status } = req.body;
+    try {
+        const result = await query(
+            'INSERT INTO subjects (name, program_id, year, status) VALUES ($1, $2, $3, $4) RETURNING *',
+            [name, programId, year, status || 'Active']
+        );
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Server Error');
+    }
+});
+
+// 3. UPDATE Subject
+app.put('/api/subjects/:id', async (req, res) => {
+    const { id } = req.params;
+    const { name, year, status } = req.body;
+    try {
+        await query(
+            'UPDATE subjects SET name=$1, year=$2, status=$3 WHERE id=$4',
+            [name, year, status, id]
+        );
+        res.json({ message: "Subject Updated" });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Server Error');
+    }
+});
+
+// 4. DELETE Subject
+app.delete('/api/subjects/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        await query('DELETE FROM subjects WHERE id = $1', [id]);
+        res.json({ message: "Subject Deleted" });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Server Error');
+    }
+});
+
 // --- AUTH ---
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
