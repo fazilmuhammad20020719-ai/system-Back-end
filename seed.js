@@ -32,6 +32,7 @@ const seed = async () => {
             await query('INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3)', ['admin', hash, 'admin']);
         }
 
+        /*
         // Seed Programs
         const progCheck = await query('SELECT count(*) FROM programs');
         if (parseInt(progCheck.rows[0].count) === 0) {
@@ -113,6 +114,7 @@ const seed = async () => {
                 ('Staff Meeting', 'Monthly preparation meeting', 'Calendar', $3, 'gray')
             `, [today, tomorrow, dayAfter]);
         }
+        */
 
         console.log('Seeding complete.');
         process.exit(0);

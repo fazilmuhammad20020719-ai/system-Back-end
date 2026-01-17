@@ -405,13 +405,29 @@ app.delete('/api/documents/:id', async (req, res) => {
     }
 });
 
-// --- PROGRAMS API (Dropdowns) ---
+// --- PROGRAMS API (Dropdowns & Management) ---
 app.get('/api/programs', async (req, res) => {
     try {
-        const result = await query('SELECT * FROM programs');
+        const result = await query('SELECT * FROM programs ORDER BY id DESC');
         res.json(result.rows);
     } catch (err) {
         console.error(err);
+        res.status(500).send("Server Error");
+    }
+});
+
+app.post('/api/programs', async (req, res) => {
+    const { name, head, duration, fee, status } = req.body;
+    try {
+        const result = await query(
+            `INSERT INTO programs (name, head_of_program, duration, fees, status) 
+             VALUES ($1, $2, $3, $4, $5) 
+             RETURNING *`,
+            [name, head, duration, fee, status]
+        );
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        console.error("Error adding program:", err);
         res.status(500).send("Server Error");
     }
 });
