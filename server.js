@@ -442,6 +442,36 @@ app.post('/api/programs', async (req, res) => {
     }
 });
 
+// 2. UPDATE Program (Edit)
+app.put('/api/programs/:id', async (req, res) => {
+    const { id } = req.params;
+    const { name, head, duration, fee, status } = req.body;
+    try {
+        await query(
+            `UPDATE programs 
+             SET name=$1, head_of_program=$2, duration=$3, fees=$4, status=$5 
+             WHERE id=$6`,
+            [name, head, duration, fee, status, id]
+        );
+        res.json({ message: "Program updated successfully" });
+    } catch (err) {
+        console.error("Error updating program:", err);
+        res.status(500).send("Server Error");
+    }
+});
+
+// 3. DELETE Program (Delete)
+app.delete('/api/programs/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        await query('DELETE FROM programs WHERE id = $1', [id]);
+        res.json({ message: "Program deleted successfully" });
+    } catch (err) {
+        console.error("Error deleting program:", err);
+        res.status(500).send("Server Error");
+    }
+});
+
 // --- AUTH ---
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
