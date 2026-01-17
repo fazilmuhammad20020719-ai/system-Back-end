@@ -15,7 +15,7 @@ console.log("Environment PORT:", process.env.PORT);
 app.use(cors());
 app.use(express.json());
 
-// Routes
+//Routes
 
 // --- DASHBOARD API ---
 app.get('/api/dashboard', async (req, res) => {
@@ -363,21 +363,6 @@ app.delete('/api/schedule/:id', async (req, res) => {
     }
 });
 
-// --- SUBJECTS API ---
-app.get('/api/subjects', async (req, res) => {
-    try {
-        const result = await query(`
-            SELECT s.*, p.name as program 
-            FROM subjects s
-            LEFT JOIN programs p ON s.program_id = p.id
-        `);
-        res.json(result.rows);
-    } catch (err) {
-        console.error("Fetch subjects error:", err);
-        res.status(500).send("Server Error");
-    }
-});
-
 // --- DOCUMENTS API ---
 app.get('/api/documents', async (req, res) => {
     try {
@@ -472,7 +457,7 @@ app.delete('/api/programs/:id', async (req, res) => {
     }
 });
 
-// --- SUBJECTS API ---
+// --- SUBJECTS API (Cleaned) ---
 
 // 1. GET All Subjects
 app.get('/api/subjects', async (req, res) => {
