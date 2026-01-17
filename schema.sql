@@ -20,7 +20,10 @@ CREATE TABLE IF NOT EXISTS programs (
     name VARCHAR(100) NOT NULL,
     head_of_program VARCHAR(100),
     type VARCHAR(50),
-    color_theme VARCHAR(50)
+    color_theme VARCHAR(50),
+    duration VARCHAR(50),
+    fees VARCHAR(50),
+    status VARCHAR(20) DEFAULT 'Active'
 );
 
 -- Students Table
@@ -45,6 +48,12 @@ CREATE TABLE IF NOT EXISTS teachers (
     role VARCHAR(50),
     email VARCHAR(100),
     phone VARCHAR(20),
+    address TEXT,
+    nic VARCHAR(20),
+    dob DATE,
+    joining_date DATE,
+    designation VARCHAR(100),
+    qualification VARCHAR(255),
     status VARCHAR(20) DEFAULT 'Active'
 );
 

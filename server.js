@@ -177,7 +177,11 @@ app.get('/api/teachers', async (req, res) => {
 });
 
 app.post('/api/teachers', async (req, res) => {
-    const { empId, name, program, subject, role, email, phone } = req.body;
+    const {
+        empId, name, program, subject, role, email, phone,
+        address, nic, dob, joiningDate, designation, qualification
+    } = req.body;
+
     try {
         let programId = null;
         if (program) {
@@ -186,9 +190,15 @@ app.post('/api/teachers', async (req, res) => {
         }
 
         await query(
-            `INSERT INTO teachers (emp_id, name, program_id, subject, role, email, phone)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            [empId, name, programId, subject, role, email, phone]
+            `INSERT INTO teachers (
+                emp_id, name, program_id, subject, role, email, phone,
+                address, nic, dob, joining_date, designation, qualification
+            )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+            [
+                empId, name, programId, subject, role, email, phone,
+                address, nic, dob, joiningDate, designation, qualification
+            ]
         );
 
         await query(
