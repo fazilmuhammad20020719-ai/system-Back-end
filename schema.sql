@@ -7,13 +7,12 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Insert Default Admin User
--- Password is 'Admin1234#' hashed with bcrypt (cost 10)
--- You can generate a new hash using a tool or the backend logic
 
+/*
 INSERT INTO users (username, password_hash, role)
 VALUES ('admin', '$2y$10$Kq.1ZCWMRg1ME8L8zVfaD.G331ZXsG2fiHlFHr/7ljyz9BDNUAtM6', 'admin')
 ON CONFLICT (username) DO NOTHING;
+*/
 
 
 -- Programs Table
@@ -37,7 +36,35 @@ CREATE TABLE IF NOT EXISTS students (
     session_year VARCHAR(10),
     guardian_name VARCHAR(100),
     contact_number VARCHAR(20),
-    status VARCHAR(20) DEFAULT 'Active'
+    status VARCHAR(20) DEFAULT 'Active',
+    -- New columns added for full profile support
+    dob DATE,
+    gender VARCHAR(20),
+    nic VARCHAR(20),
+    email VARCHAR(100),
+    photo_url TEXT,
+    address TEXT,
+    city VARCHAR(100),
+    district VARCHAR(100),
+    province VARCHAR(100),
+    guardian_relation VARCHAR(50),
+    guardian_occupation VARCHAR(100),
+    guardian_phone VARCHAR(20),
+    admission_date DATE,
+    previous_school VARCHAR(100),
+    medium_of_study VARCHAR(50),
+    -- File paths
+    nic_front TEXT,
+    nic_back TEXT,
+    student_signature TEXT,
+    birth_certificate TEXT,
+    medical_report TEXT,
+    guardian_nic TEXT,
+    guardian_photo TEXT,
+    leaving_certificate TEXT,
+    google_map_link TEXT,
+    latitude DECIMAL(10, 8),
+    longitude DECIMAL(11, 8)
 );
 
 -- Teachers Table

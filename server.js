@@ -59,6 +59,64 @@ const pool = new Pool({
     port: process.env.DB_PORT,
 });
 
+// --- MIGRATION CHECK ---
+// This runs on startup to ensure the schema is up to date, 
+// fixing the "column does not exist" error automatically.
+const runMigrations = async () => {
+    const alterQueries = [
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS dob DATE;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS gender VARCHAR(20);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS nic VARCHAR(20);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS email VARCHAR(100);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS photo_url TEXT;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS address TEXT;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS city VARCHAR(100);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS district VARCHAR(100);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS province VARCHAR(100);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS guardian_relation VARCHAR(50);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS guardian_occupation VARCHAR(100);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS guardian_phone VARCHAR(20);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS admission_date DATE;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS previous_school VARCHAR(100);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS medium_of_study VARCHAR(50);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS nic_front TEXT;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS nic_back TEXT;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS student_signature TEXT;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS birth_certificate TEXT;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS medical_report TEXT;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS guardian_nic TEXT;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS guardian_photo TEXT;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS leaving_certificate TEXT;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS google_map_link TEXT;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS latitude DECIMAL(10, 8);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS longitude DECIMAL(11, 8);",
+        `CREATE TABLE IF NOT EXISTS subjects (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            program_id INTEGER REFERENCES programs(id),
+            year VARCHAR(50),
+            teacher_id INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );`
+    ];
+
+    try {
+        const client = await pool.connect();
+        try {
+            for (const q of alterQueries) {
+                await client.query(q);
+            }
+            console.log("Database schema checked/updated successfully.");
+        } finally {
+            client.release();
+        }
+    } catch (err) {
+        console.error("Migration warning:", err.message);
+    }
+};
+
+runMigrations();
+
 const query = (text, params) => pool.query(text, params);
 
 // ==========================================
@@ -91,6 +149,7 @@ app.post('/api/login', (req, res) => {
 });
 
 // --- 1. SAVE STUDENT (ADD or EDIT) with MULTIPLE FILES ---
+// --- 1. SAVE STUDENT (ADD or EDIT) with MULTIPLE FILES ---
 app.post('/api/students', cpUpload, async (req, res) => {
     try {
         // Text Data from FormData
@@ -99,14 +158,28 @@ app.post('/api/students', cpUpload, async (req, res) => {
             dob, gender, nic, email, phone,
             address, city, district, province,
             guardianName, guardianRelation, guardianOccupation, guardianPhone, guardianEmail,
-            admissionDate, previousSchoolName, mediumOfStudy
+            admissionDate, previousSchoolName, mediumOfStudy,
+            googleMapLink,
+            latitude, longitude
         } = req.body;
 
-        // --- FILE HANDLING ---
-        let photoUrl = null;
-        if (req.files && req.files['studentPhoto']) {
-            photoUrl = `/uploads/${req.files['studentPhoto'][0].filename}`;
-        }
+        const getFilePath = (fieldName) => {
+            if (req.files && req.files[fieldName]) {
+                return `/uploads/${req.files[fieldName][0].filename}`;
+            }
+            return null;
+        };
+
+        const photoUrl = getFilePath('studentPhoto');
+        const nicFront = getFilePath('nicFront');
+        const nicBack = getFilePath('nicBack');
+        const studentSignature = getFilePath('studentSignature');
+        const birthCertificate = getFilePath('birthCertificate');
+        const medicalReport = getFilePath('medicalReport');
+        const guardianNic = getFilePath('guardianNic');
+        const guardianPhoto = getFilePath('guardianPhoto');
+        const leavingCertificate = getFilePath('leavingCertificate');
+
 
         // Basic Validation
         if (!indexNumber || !firstName) {
@@ -125,28 +198,50 @@ app.post('/api/students', cpUpload, async (req, res) => {
         }
 
         // --- SQL QUERY (UPSERT) ---
+        // Note: We use COALESCE($param, column_name) for files so that if no new file is uploaded (null),
+        // we keep the existing one on UPDATE. For INSERT, it will be null if not provided.
+        // However, standard SQL COALESCE won't work exactly like that in VALUES clause for upsert unless we handle it in the ON CONFLICT part carefully.
+        // For ON CONFLICT, we want: new_val OR old_val.
+        // But for INSERT, we just want new_val.
+
         const queryText = `
             INSERT INTO students (
                 id, name, program_id, current_year, session_year, status, contact_number,
                 dob, gender, nic, email, photo_url,
                 address, city, district, province,
                 guardian_name, guardian_relation, guardian_occupation, guardian_phone,
-                admission_date, previous_school, medium_of_study
+                admission_date, previous_school, medium_of_study,
+                nic_front, nic_back, student_signature, birth_certificate, medical_report, 
+                guardian_nic, guardian_photo, leaving_certificate,
+                google_map_link, latitude, longitude
             )
             VALUES (
                 $1, $2, $3, $4, $5, $6, $7,
                 $8, $9, $10, $11, $12,
                 $13, $14, $15, $16,
                 $17, $18, $19, $20,
-                $21, $22, $23
+                $21, $22, $23,
+                $24, $25, $26, $27, $28, $29, $30, $31,
+                $32, $33, $34
             )
             ON CONFLICT (id) DO UPDATE SET 
                 name=$2, program_id=$3, current_year=$4, session_year=$5, status=$6, contact_number=$7,
                 dob=$8, gender=$9, nic=$10, email=$11, 
-                photo_url=COALESCE($12, students.photo_url), 
+                photo_url = COALESCE($12, students.photo_url), 
                 address=$13, city=$14, district=$15, province=$16,
                 guardian_name=$17, guardian_relation=$18, guardian_occupation=$19, guardian_phone=$20,
-                admission_date=$21, previous_school=$22, medium_of_study=$23
+                admission_date=$21, previous_school=$22, medium_of_study=$23,
+                nic_front = COALESCE($24, students.nic_front),
+                nic_back = COALESCE($25, students.nic_back),
+                student_signature = COALESCE($26, students.student_signature),
+                birth_certificate = COALESCE($27, students.birth_certificate),
+                medical_report = COALESCE($28, students.medical_report),
+                guardian_nic = COALESCE($29, students.guardian_nic),
+                guardian_photo = COALESCE($30, students.guardian_photo),
+                leaving_certificate = COALESCE($31, students.leaving_certificate),
+                google_map_link = $32,
+                latitude = $33,
+                longitude = $34
         `;
 
         const values = [
@@ -154,7 +249,12 @@ app.post('/api/students', cpUpload, async (req, res) => {
             dob || null, gender, nic, email, photoUrl,
             address, city, district, province,
             guardianName, guardianRelation, guardianOccupation, guardianPhone,
-            admissionDate || null, previousSchoolName, mediumOfStudy
+            admissionDate || null, previousSchoolName, mediumOfStudy,
+            nicFront, nicBack, studentSignature, birthCertificate, medicalReport,
+            guardianNic, guardianPhoto, leavingCertificate,
+            googleMapLink || null,
+            latitude || null,
+            longitude || null
         ];
 
         await query(queryText, values);
@@ -222,6 +322,63 @@ app.get('/api/programs', async (req, res) => {
     try {
         const result = await query('SELECT * FROM programs ORDER BY id ASC');
         res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// --- 6. SUBJECTS API (RESTORED) ---
+
+// GET All Subjects
+app.get('/api/subjects', async (req, res) => {
+    try {
+        const result = await query('SELECT * FROM subjects ORDER BY id ASC');
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// POST Create Subject
+app.post('/api/subjects', async (req, res) => {
+    try {
+        const { name, programId, year, teacherId } = req.body;
+        const result = await query(
+            'INSERT INTO subjects (name, program_id, year, teacher_id) VALUES ($1, $2, $3, $4) RETURNING *',
+            [name, programId, year, teacherId || null]
+        );
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// PUT Update Subject
+app.put('/api/subjects/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, programId, year, teacherId } = req.body;
+        const result = await query(
+            'UPDATE subjects SET name=$1, program_id=$2, year=$3, teacher_id=$4 WHERE id=$5 RETURNING *',
+            [name, programId, year, teacherId || null, id]
+        );
+        if (result.rows.length === 0) return res.status(404).json({ message: 'Subject not found' });
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// DELETE Subject
+app.delete('/api/subjects/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        await query('DELETE FROM subjects WHERE id = $1', [id]);
+        res.json({ message: 'Subject deleted' });
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Server Error' });

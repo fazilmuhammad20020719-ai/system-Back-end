@@ -1,6 +1,14 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
+console.log("DB Config:", {
+    user: process.env.DB_USER,
+    host: process.env.DB_HOST,
+    database: process.env.DB_NAME,
+    password: process.env.DB_PASSWORD ? '****' : 'MISSING',
+    port: process.env.DB_PORT,
+});
+
 const pool = new Pool({
     user: process.env.DB_USER,
     host: process.env.DB_HOST,
@@ -40,6 +48,8 @@ const alterQueries = [
 async function updateSchema() {
     try {
         console.log("Starting schema update...");
+        await pool.query('SELECT NOW()'); // Test connection first
+        console.log("Connected to DB.");
 
         for (const query of alterQueries) {
             await pool.query(query);
