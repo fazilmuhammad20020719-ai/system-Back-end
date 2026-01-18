@@ -68,11 +68,10 @@ const pool = new Pool({
     port: process.env.DB_PORT,
 });
 
-// --- MIGRATION CHECK ---
-// This runs on startup to ensure the schema is up to date, 
-// fixing the "column does not exist" error automatically.
+// --- MIGRATION CHECK (Updated) ---
 const runMigrations = async () => {
     const alterQueries = [
+        // Students Table Updates
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS dob DATE;",
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS gender VARCHAR(20);",
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS nic VARCHAR(20);",
@@ -99,6 +98,19 @@ const runMigrations = async () => {
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS google_map_link TEXT;",
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS latitude DECIMAL(10, 8);",
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS longitude DECIMAL(11, 8);",
+
+        // Teachers Table Updates (NEW - இதுதான் உங்கள் பிரச்சனையைத் தீர்க்கும்)
+        "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS department VARCHAR(100);",
+        "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS emp_id VARCHAR(50);",
+        "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS designation VARCHAR(100);",
+        "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS joining_date DATE;",
+        "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS bank_name VARCHAR(100);",
+        "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS account_number VARCHAR(50);",
+        "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS basic_salary DECIMAL(10, 2);",
+        // emp_id-ல் Unique Constraint இல்லையென்றால் சேர்ப்பதற்கான வழி (Optional safety)
+        "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'teachers_emp_id_key') THEN ALTER TABLE teachers ADD CONSTRAINT teachers_emp_id_key UNIQUE (emp_id); END IF; END $$;",
+
+        // Create Tables if not exist
         `CREATE TABLE IF NOT EXISTS subjects (
             id SERIAL PRIMARY KEY,
             name VARCHAR(100) NOT NULL,
@@ -106,8 +118,8 @@ const runMigrations = async () => {
             year VARCHAR(50),
             teacher_id INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );`,
+
         `CREATE TABLE IF NOT EXISTS teachers (
             id SERIAL PRIMARY KEY,
             emp_id VARCHAR(50) UNIQUE NOT NULL,
