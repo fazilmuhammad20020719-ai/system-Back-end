@@ -14,29 +14,39 @@ app.use(cors());
 app.use(express.json());
 
 // --- 1. SETUP UPLOADS FOLDER ---
-// 'uploads' என்ற ஃபோல்டர் இல்லை என்றால் உருவாக்கவும்
 const uploadDir = './uploads';
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir);
 }
 
 // போட்டோக்களை வெளியுலகிற்கு (Browser) காட்ட வழி செய்தல்
-// http://localhost:5000/uploads/image.jpg என்று அணுகலாம்
 app.use('/uploads', express.static('uploads'));
 
 // --- 2. MULTER CONFIGURATION (FILE UPLOAD) ---
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, 'uploads/'); // Save files in 'uploads' folder
+        cb(null, 'uploads/');
     },
     filename: (req, file, cb) => {
-        // Unique File Name: fieldname-timestamp-random.ext
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
     }
 });
 
 const upload = multer({ storage: storage });
+
+// பல ஃபைல்களை ஏற்பதற்கான அமைப்பு
+const cpUpload = upload.fields([
+    { name: 'studentPhoto', maxCount: 1 },
+    { name: 'nicFront', maxCount: 1 },
+    { name: 'nicBack', maxCount: 1 },
+    { name: 'studentSignature', maxCount: 1 },
+    { name: 'birthCertificate', maxCount: 1 },
+    { name: 'medicalReport', maxCount: 1 },
+    { name: 'guardianNic', maxCount: 1 },
+    { name: 'guardianPhoto', maxCount: 1 },
+    { name: 'leavingCertificate', maxCount: 1 }
+]);
 
 // --- DATABASE CONNECTION ---
 const pool = new Pool({
@@ -53,8 +63,8 @@ const query = (text, params) => pool.query(text, params);
 //              API ENDPOINTS
 // ==========================================
 
-// --- 1. SAVE STUDENT (ADD or EDIT) with PHOTO ---
-app.post('/api/students', upload.single('studentPhoto'), async (req, res) => {
+// --- 1. SAVE STUDENT (ADD or EDIT) with MULTIPLE FILES ---
+app.post('/api/students', cpUpload, async (req, res) => {
     try {
         // Text Data from FormData
         const {
@@ -65,12 +75,17 @@ app.post('/api/students', upload.single('studentPhoto'), async (req, res) => {
             admissionDate, previousSchoolName, mediumOfStudy
         } = req.body;
 
-        // File Data (Photo Handling)
+        // --- FILE HANDLING ---
+        // போட்டோ இருக்கிறதா என்று பார்த்து URL உருவாக்குதல்
+        // குறிப்பு: req.files['field_name'] என்று அணுக வேண்டும்
         let photoUrl = null;
-        if (req.file) {
-            // New photo uploaded -> Create URL path
-            photoUrl = `/uploads/${req.file.filename}`;
+        if (req.files && req.files['studentPhoto']) {
+            photoUrl = `/uploads/${req.files['studentPhoto'][0].filename}`;
         }
+
+        // TODO: மற்ற ஆவணங்களையும் Database-ல் சேர்க்க விரும்பினால், 
+        // கீழே உள்ளவாறு URL எடுத்து Table-ல் சேர்க்கலாம்.
+        // let nicFrontUrl = req.files['nicFront'] ? `/uploads/${req.files['nicFront'][0].filename}` : null;
 
         // Basic Validation
         if (!indexNumber || !firstName) {
@@ -89,7 +104,6 @@ app.post('/api/students', upload.single('studentPhoto'), async (req, res) => {
         }
 
         // --- SQL QUERY (UPSERT) ---
-        // COALESCE($12, students.photo_url) -> புதிய போட்டோ இருந்தால் அதை வை, இல்லையென்றால் பழையதை வை.
         const queryText = `
             INSERT INTO students (
                 id, name, program_id, current_year, session_year, status, contact_number,
@@ -116,16 +130,13 @@ app.post('/api/students', upload.single('studentPhoto'), async (req, res) => {
 
         const values = [
             indexNumber, fullName, programId, currentYear, session, status || 'Active', phone,
-            dob || null, gender, nic, email, photoUrl, // $12 is photoUrl (null if no new photo)
+            dob || null, gender, nic, email, photoUrl,
             address, city, district, province,
             guardianName, guardianRelation, guardianOccupation, guardianPhone,
             admissionDate || null, previousSchoolName, mediumOfStudy
         ];
 
         await query(queryText, values);
-
-        // Optional: Log Activity
-        // await query(`INSERT INTO activities (title, description, icon_type) VALUES ($1, $2, 'UserPlus')`, ['Student Update', `${fullName} record updated/added`]);
 
         res.status(201).json({ message: 'Student details saved successfully' });
 
@@ -177,10 +188,6 @@ app.get('/api/students/:id', async (req, res) => {
 app.delete('/api/students/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        // Optional: Delete photo file from folder before deleting record
-        // const fileRes = await query('SELECT photo_url FROM students WHERE id = $1', [id]);
-        // if(fileRes.rows.length > 0 && fileRes.rows[0].photo_url) { ... fs.unlink ... }
-
         await query('DELETE FROM students WHERE id = $1', [id]);
         res.json({ message: 'Student deleted successfully' });
     } catch (err) {
