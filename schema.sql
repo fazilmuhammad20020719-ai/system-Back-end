@@ -10,9 +10,11 @@ CREATE TABLE IF NOT EXISTS users (
 -- Insert Default Admin User
 -- Password is 'Admin1234#' hashed with bcrypt (cost 10)
 -- You can generate a new hash using a tool or the backend logic
+
 INSERT INTO users (username, password_hash, role)
 VALUES ('admin', '$2y$10$Kq.1ZCWMRg1ME8L8zVfaD.G331ZXsG2fiHlFHr/7ljyz9BDNUAtM6', 'admin')
 ON CONFLICT (username) DO NOTHING;
+
 
 -- Programs Table
 CREATE TABLE IF NOT EXISTS programs (

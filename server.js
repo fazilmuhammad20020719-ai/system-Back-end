@@ -1,3 +1,5 @@
+const jwt = require('jsonwebtoken'); // டோக்கன் உருவாக்க
+const auth = require('./credentials.js'); // லாகின் விவரங்களை அழைக்க
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
@@ -63,6 +65,31 @@ const query = (text, params) => pool.query(text, params);
 //              API ENDPOINTS
 // ==========================================
 
+// --- 0. LOGIN API (புதிதாக சேர்க்கப்பட்டது) ---
+app.post('/api/login', (req, res) => {
+    const { username, password } = req.body;
+
+    // credentials.js கோப்பில் உள்ள விவரங்களுடன் ஒப்பிடுதல்
+    if (username === auth.adminUser && password === auth.adminPass) {
+
+        // லாகின் வெற்றிகரமாக முடிந்தால் டோக்கன் உருவாக்குதல்
+        const token = jwt.sign(
+            { user: username },
+            process.env.JWT_SECRET || 'your_secret_key_123',
+            { expiresIn: '12h' }
+        );
+
+        return res.json({
+            message: 'Login successful',
+            token: token,
+            user: { username: username, role: 'admin' }
+        });
+    } else {
+        // விவரங்கள் தவறாக இருந்தால்
+        return res.status(400).json({ message: 'Invalid Username or Password' });
+    }
+});
+
 // --- 1. SAVE STUDENT (ADD or EDIT) with MULTIPLE FILES ---
 app.post('/api/students', cpUpload, async (req, res) => {
     try {
@@ -76,16 +103,10 @@ app.post('/api/students', cpUpload, async (req, res) => {
         } = req.body;
 
         // --- FILE HANDLING ---
-        // போட்டோ இருக்கிறதா என்று பார்த்து URL உருவாக்குதல்
-        // குறிப்பு: req.files['field_name'] என்று அணுக வேண்டும்
         let photoUrl = null;
         if (req.files && req.files['studentPhoto']) {
             photoUrl = `/uploads/${req.files['studentPhoto'][0].filename}`;
         }
-
-        // TODO: மற்ற ஆவணங்களையும் Database-ல் சேர்க்க விரும்பினால், 
-        // கீழே உள்ளவாறு URL எடுத்து Table-ல் சேர்க்கலாம்.
-        // let nicFrontUrl = req.files['nicFront'] ? `/uploads/${req.files['nicFront'][0].filename}` : null;
 
         // Basic Validation
         if (!indexNumber || !firstName) {
