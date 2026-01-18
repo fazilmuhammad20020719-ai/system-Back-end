@@ -25,13 +25,27 @@ if (!fs.existsSync(uploadDir)) {
 app.use('/uploads', express.static('uploads'));
 
 // --- 2. MULTER CONFIGURATION (FILE UPLOAD) ---
+// --- 2. MULTER CONFIGURATION (FILE UPLOAD - UPDATED) ---
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, 'uploads/');
+        // உங்கள் Rclone ஃபோல்டர் பாதை (சரியாக இருப்பதை உறுதி செய்யவும்)
+        cb(null, uploadDir);
     },
     filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+        // 1. ID-ஐ எடுக்கிறோம் (Student Index அல்லது Teacher EmpID)
+        // Frontend-ல் Text ஃபீல்டுகள் File-க்கு முன்னதாக அனுப்பப்பட வேண்டும் (உங்கள் கோடில் அது சரியாக உள்ளது).
+        const id = req.body.indexNumber || req.body.empId || 'Unknown';
+
+        // 2. ID-ல் உள்ள ஸ்பெஷல் எழுத்துக்களை நீக்குகிறோம் (பாதுகாப்பிற்காக)
+        const safeId = id.toString().replace(/[^a-zA-Z0-9-_]/g, '');
+
+        // 3. ஃபைல் பெயர் உருவாக்கம்: "ID-Fieldname.ext"
+        // உதாரணம்: "ST2024001-studentPhoto.jpg"
+        // இது பழைய ஃபைலை Overwrite செய்துவிடும் (Duplicate வராது).
+        const ext = path.extname(file.originalname);
+        const fixedName = `${safeId}-${file.fieldname}${ext}`;
+
+        cb(null, fixedName);
     }
 });
 
