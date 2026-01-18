@@ -121,6 +121,16 @@ const runMigrations = async () => {
         "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS bank_name VARCHAR(100);",
         "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS account_number VARCHAR(50);",
         "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS basic_salary DECIMAL(10, 2);",
+
+        // 1. PROGRAMS டேபிளில் Category சேர்ப்பது (Sharia / Academic)
+        "ALTER TABLE programs ADD COLUMN IF NOT EXISTS category VARCHAR(50);",
+
+        // 2. TEACHERS டேபிளில் Category சேர்ப்பது (Sharia / Academic / Both)
+        "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS teacher_category VARCHAR(50);",
+
+        // Teachers டேபிளில் பல ப்ரோக்ராம்களைச் சேமிக்க புதிய வழி (Text வடிவில்)
+        "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS assigned_programs TEXT;",
+
         // emp_id-ல் Unique Constraint இல்லையென்றால் சேர்ப்பதற்கான வழி (Optional safety)
         "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'teachers_emp_id_key') THEN ALTER TABLE teachers ADD CONSTRAINT teachers_emp_id_key UNIQUE (emp_id); END IF; END $$;",
 
@@ -419,14 +429,13 @@ app.get('/api/programs/:id', async (req, res) => {
 // 3. CREATE NEW PROGRAM
 app.post('/api/programs', async (req, res) => {
     try {
-        // Frontend sends: name, head, duration, fee, status
-        // Database expects: head_of_program, fees
-        const { name, head, duration, fee, status } = req.body;
+        // category-யை புதிதாகப் பெறுகிறோம்
+        const { name, head, duration, fee, status, category } = req.body;
 
         const result = await query(
-            `INSERT INTO programs (name, head_of_program, duration, fees, status) 
-             VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-            [name, head, duration, fee, status || 'Active']
+            `INSERT INTO programs (name, head_of_program, duration, fees, status, category) 
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+            [name, head, duration, fee, status || 'Active', category]
         );
         res.status(201).json(result.rows[0]);
     } catch (err) {
@@ -439,13 +448,13 @@ app.post('/api/programs', async (req, res) => {
 app.put('/api/programs/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const { name, head, duration, fee, status } = req.body;
+        const { name, head, duration, fee, status, category } = req.body;
 
         const result = await query(
             `UPDATE programs 
-             SET name=$1, head_of_program=$2, duration=$3, fees=$4, status=$5 
-             WHERE id=$6 RETURNING *`,
-            [name, head, duration, fee, status, id]
+             SET name=$1, head_of_program=$2, duration=$3, fees=$4, status=$5, category=$6 
+             WHERE id=$7 RETURNING *`,
+            [name, head, duration, fee, status, category, id]
         );
 
         if (result.rows.length === 0) {
@@ -578,12 +587,14 @@ app.get('/api/teachers/:id', async (req, res) => {
 // 3. CREATE TEACHER
 app.post('/api/teachers', teacherUpload, async (req, res) => {
     try {
+        // subject-க்கு பதில் teacherCategory என்று பெயர் மாற்றுகிறோம்
         const {
-            empId, name, program, subject, designation, email, phone, whatsapp,
+            empId, name, program, teacherCategory, designation, email, phone, whatsapp,
             address, nic, dob, gender, maritalStatus,
             joiningDate, qualification, degreeInstitute, gradYear,
             appointmentType, previousExperience, department,
-            basicSalary, bankName, accountNumber, status
+            basicSalary, bankName, accountNumber, status,
+            assignedPrograms // இது இப்போது Array-ஆக வரும்
         } = req.body;
 
         const getFilePath = (fieldName) => {
@@ -613,9 +624,13 @@ app.post('/api/teachers', teacherUpload, async (req, res) => {
             }
         }
 
+        // Array-வை கமா (,) போட்டு String-ஆக மாற்றுகிறோம்
+        const programsString = Array.isArray(assignedPrograms) ? assignedPrograms.join(', ') : assignedPrograms;
+
         const queryText = `
             INSERT INTO teachers (
-                emp_id, name, program_id, subject, designation, email, phone, whatsapp,
+                emp_id, name, program_id, teacher_category, assigned_programs, 
+                designation, email, phone, whatsapp,
                 address, nic, dob, gender, marital_status,
                 joining_date, qualification, degree_institute, grad_year,
                 appointment_type, previous_experience, department,
@@ -627,12 +642,13 @@ app.post('/api/teachers', teacherUpload, async (req, res) => {
                 $14, $15, $16, $17,
                 $18, $19, $20,
                 $21, $22, $23,
-                $24, $25, $26, $27, $28
+                $24, $25, $26, $27, $28, $29
             ) RETURNING *
         `;
 
         const values = [
-            empId, name, programId, subject, designation, email, phone, whatsapp,
+            empId, name, programId, teacherCategory, programsString,
+            designation, email, phone, whatsapp,
             address, nic, dob || null, gender, maritalStatus,
             joiningDate || null, qualification, degreeInstitute, gradYear,
             appointmentType, previousExperience, department,
@@ -654,11 +670,12 @@ app.put('/api/teachers/:id', teacherUpload, async (req, res) => {
     try {
         const { id } = req.params;
         const {
-            empId, name, program, subject, designation, email, phone, whatsapp,
+            empId, name, program, teacherCategory, designation, email, phone, whatsapp,
             address, nic, dob, gender, maritalStatus,
             joiningDate, qualification, degreeInstitute, gradYear,
             appointmentType, previousExperience, department,
-            basicSalary, bankName, accountNumber, status
+            basicSalary, bankName, accountNumber, status,
+            assignedPrograms
         } = req.body;
 
         const getFilePath = (fieldName) => {
@@ -686,23 +703,28 @@ app.put('/api/teachers/:id', teacherUpload, async (req, res) => {
             }
         }
 
+        // Array-வை கமா (,) போட்டு String-ஆக மாற்றுகிறோம்
+        const programsString = Array.isArray(assignedPrograms) ? assignedPrograms.join(', ') : assignedPrograms;
+
         const queryText = `
             UPDATE teachers SET
-                emp_id=$1, name=$2, program_id=$3, subject=$4, designation=$5, email=$6, phone=$7, whatsapp=$8,
-                address=$9, nic=$10, dob=$11, gender=$12, marital_status=$13,
-                joining_date=$14, qualification=$15, degree_institute=$16, grad_year=$17,
-                appointment_type=$18, previous_experience=$19, department=$20,
-                basic_salary=$21, bank_name=$22, account_number=$23,
-                photo_url = COALESCE($24, photo_url),
-                cv_url = COALESCE($25, cv_url),
-                certificates_url = COALESCE($26, certificates_url),
-                nic_copy_url = COALESCE($27, nic_copy_url),
-                status = COALESCE($28, status)
-            WHERE id=$29 RETURNING *
+                emp_id=$1, name=$2, program_id=$3, teacher_category=$4, assigned_programs=$5, 
+                designation=$6, email=$7, phone=$8, whatsapp=$9,
+                address=$10, nic=$11, dob=$12, gender=$13, marital_status=$14,
+                joining_date=$15, qualification=$16, degree_institute=$17, grad_year=$18,
+                appointment_type=$19, previous_experience=$20, department=$21,
+                basic_salary=$22, bank_name=$23, account_number=$24,
+                photo_url = COALESCE($25, photo_url),
+                cv_url = COALESCE($26, cv_url),
+                certificates_url = COALESCE($27, certificates_url),
+                nic_copy_url = COALESCE($28, nic_copy_url),
+                status = COALESCE($29, status)
+            WHERE id=$30 RETURNING *
         `;
 
         const values = [
-            empId, name, programId, subject, designation, email, phone, whatsapp,
+            empId, name, programId, teacherCategory, programsString,
+            designation, email, phone, whatsapp,
             address, nic, dob || null, gender, maritalStatus,
             joiningDate || null, qualification, degreeInstitute, gradYear,
             appointmentType, previousExperience, department,
