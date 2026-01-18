@@ -47,7 +47,16 @@ const cpUpload = upload.fields([
     { name: 'medicalReport', maxCount: 1 },
     { name: 'guardianNic', maxCount: 1 },
     { name: 'guardianPhoto', maxCount: 1 },
+    { name: 'guardianPhoto', maxCount: 1 },
     { name: 'leavingCertificate', maxCount: 1 }
+]);
+
+// Teachers Upload Configuration
+const teacherUpload = upload.fields([
+    { name: 'profilePhoto', maxCount: 1 },
+    { name: 'cvFile', maxCount: 1 },
+    { name: 'certificates', maxCount: 1 },
+    { name: 'nicCopy', maxCount: 1 }
 ]);
 
 // --- DATABASE CONNECTION ---
@@ -96,6 +105,39 @@ const runMigrations = async () => {
             program_id INTEGER REFERENCES programs(id),
             year VARCHAR(50),
             teacher_id INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );`,
+        `CREATE TABLE IF NOT EXISTS teachers (
+            id SERIAL PRIMARY KEY,
+            emp_id VARCHAR(50) UNIQUE NOT NULL,
+            name VARCHAR(100) NOT NULL,
+            program_id INTEGER REFERENCES programs(id),
+            subject VARCHAR(100),
+            designation VARCHAR(100),
+            email VARCHAR(100),
+            phone VARCHAR(20),
+            whatsapp VARCHAR(20),
+            address TEXT,
+            nic VARCHAR(20),
+            dob DATE,
+            gender VARCHAR(20),
+            marital_status VARCHAR(20),
+            joining_date DATE,
+            qualification TEXT,
+            degree_institute VARCHAR(100),
+            grad_year VARCHAR(20),
+            appointment_type VARCHAR(50),
+            previous_experience TEXT,
+            department VARCHAR(100),
+            basic_salary DECIMAL(10, 2),
+            bank_name VARCHAR(100),
+            account_number VARCHAR(50),
+            photo_url TEXT,
+            cv_url TEXT,
+            certificates_url TEXT,
+            nic_copy_url TEXT,
+            status VARCHAR(20) DEFAULT 'Active',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );`
     ];
@@ -317,7 +359,11 @@ app.delete('/api/students/:id', async (req, res) => {
     }
 });
 
-// --- 5. GET PROGRAMS (For Dropdown) ---
+// ==========================================
+//           PROGRAMS API (UPDATED)
+// ==========================================
+
+// 1. GET ALL PROGRAMS (List all)
 app.get('/api/programs', async (req, res) => {
     try {
         const result = await query('SELECT * FROM programs ORDER BY id ASC');
@@ -325,6 +371,85 @@ app.get('/api/programs', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// 2. GET SINGLE PROGRAM (Idhu dhaan View Page-ku thevai)
+app.get('/api/programs/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await query('SELECT * FROM programs WHERE id = $1', [id]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Program not found' });
+        }
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// 3. CREATE NEW PROGRAM
+app.post('/api/programs', async (req, res) => {
+    try {
+        // Frontend sends: name, head, duration, fee, status
+        // Database expects: head_of_program, fees
+        const { name, head, duration, fee, status } = req.body;
+
+        const result = await query(
+            `INSERT INTO programs (name, head_of_program, duration, fees, status) 
+             VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+            [name, head, duration, fee, status || 'Active']
+        );
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// 4. UPDATE PROGRAM
+app.put('/api/programs/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, head, duration, fee, status } = req.body;
+
+        const result = await query(
+            `UPDATE programs 
+             SET name=$1, head_of_program=$2, duration=$3, fees=$4, status=$5 
+             WHERE id=$6 RETURNING *`,
+            [name, head, duration, fee, status, id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Program not found' });
+        }
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// 5. DELETE PROGRAM
+app.delete('/api/programs/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Optional: First delete related subjects (Safety Step)
+        await query('DELETE FROM subjects WHERE program_id = $1', [id]);
+
+        // Delete the program
+        const result = await query('DELETE FROM programs WHERE id = $1 RETURNING *', [id]);
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ message: 'Program not found' });
+        }
+        res.json({ message: 'Program deleted successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server Error. Program may have linked students.' });
     }
 });
 
@@ -381,6 +506,213 @@ app.delete('/api/subjects/:id', async (req, res) => {
         res.json({ message: 'Subject deleted' });
     } catch (err) {
         console.error(err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// --- TEACHERS API ---
+
+// 1. GET ALL TEACHERS
+app.get('/api/teachers', async (req, res) => {
+    try {
+        const result = await query(`
+            SELECT t.*, p.name as program_name 
+            FROM teachers t
+            LEFT JOIN programs p ON t.program_id = p.id
+            ORDER BY t.id ASC
+        `);
+        res.json(result.rows);
+    } catch (err) {
+        console.error("Error fetching teachers:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// 2. GET SINGLE TEACHER
+app.get('/api/teachers/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await query(`
+            SELECT t.*, p.name as program_name 
+            FROM teachers t
+            LEFT JOIN programs p ON t.program_id = p.id
+            WHERE t.id = $1
+        `, [id]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Teacher not found' });
+        }
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error("Error fetching teacher:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// 3. CREATE TEACHER
+app.post('/api/teachers', teacherUpload, async (req, res) => {
+    try {
+        const {
+            empId, name, program, subject, designation, email, phone, whatsapp,
+            address, nic, dob, gender, maritalStatus,
+            joiningDate, qualification, degreeInstitute, gradYear,
+            appointmentType, previousExperience, department,
+            basicSalary, bankName, accountNumber, status
+        } = req.body;
+
+        const getFilePath = (fieldName) => {
+            if (req.files && req.files[fieldName]) {
+                return `/uploads/${req.files[fieldName][0].filename}`;
+            }
+            return null;
+        };
+
+        const photoUrl = getFilePath('profilePhoto');
+        const cvUrl = getFilePath('cvFile');
+        const certificatesUrl = getFilePath('certificates');
+        const nicCopyUrl = getFilePath('nicCopy');
+
+        // Resolve program_id if program name is sent, or use direct ID if sent
+        let programId = null;
+        if (program) {
+            // Check if it's already an ID (number)
+            if (!isNaN(program)) {
+                programId = parseInt(program);
+            } else {
+                // Determine ID from name
+                const progResult = await query('SELECT id FROM programs WHERE name ILIKE $1', [`%${program}%`]);
+                if (progResult.rows.length > 0) {
+                    programId = progResult.rows[0].id;
+                }
+            }
+        }
+
+        const queryText = `
+            INSERT INTO teachers (
+                emp_id, name, program_id, subject, designation, email, phone, whatsapp,
+                address, nic, dob, gender, marital_status,
+                joining_date, qualification, degree_institute, grad_year,
+                appointment_type, previous_experience, department,
+                basic_salary, bank_name, account_number,
+                photo_url, cv_url, certificates_url, nic_copy_url, status
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8,
+                $9, $10, $11, $12, $13,
+                $14, $15, $16, $17,
+                $18, $19, $20,
+                $21, $22, $23,
+                $24, $25, $26, $27, $28
+            ) RETURNING *
+        `;
+
+        const values = [
+            empId, name, programId, subject, designation, email, phone, whatsapp,
+            address, nic, dob || null, gender, maritalStatus,
+            joiningDate || null, qualification, degreeInstitute, gradYear,
+            appointmentType, previousExperience, department,
+            basicSalary || null, bankName, accountNumber,
+            photoUrl, cvUrl, certificatesUrl, nicCopyUrl, status || 'Active'
+        ];
+
+        const result = await query(queryText, values);
+        res.status(201).json(result.rows[0]);
+
+    } catch (err) {
+        console.error("Error creating teacher:", err);
+        res.status(500).json({ message: 'Server Error: ' + err.message });
+    }
+});
+
+// 4. UPDATE TEACHER
+app.put('/api/teachers/:id', teacherUpload, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const {
+            empId, name, program, subject, designation, email, phone, whatsapp,
+            address, nic, dob, gender, maritalStatus,
+            joiningDate, qualification, degreeInstitute, gradYear,
+            appointmentType, previousExperience, department,
+            basicSalary, bankName, accountNumber, status
+        } = req.body;
+
+        const getFilePath = (fieldName) => {
+            if (req.files && req.files[fieldName]) {
+                return `/uploads/${req.files[fieldName][0].filename}`;
+            }
+            return null;
+        };
+
+        const photoUrl = getFilePath('profilePhoto');
+        const cvUrl = getFilePath('cvFile');
+        const certificatesUrl = getFilePath('certificates');
+        const nicCopyUrl = getFilePath('nicCopy');
+
+        // Resolve program_id
+        let programId = null;
+        if (program) {
+            if (!isNaN(program)) {
+                programId = parseInt(program);
+            } else {
+                const progResult = await query('SELECT id FROM programs WHERE name ILIKE $1', [`%${program}%`]);
+                if (progResult.rows.length > 0) {
+                    programId = progResult.rows[0].id;
+                }
+            }
+        }
+
+        const queryText = `
+            UPDATE teachers SET
+                emp_id=$1, name=$2, program_id=$3, subject=$4, designation=$5, email=$6, phone=$7, whatsapp=$8,
+                address=$9, nic=$10, dob=$11, gender=$12, marital_status=$13,
+                joining_date=$14, qualification=$15, degree_institute=$16, grad_year=$17,
+                appointment_type=$18, previous_experience=$19, department=$20,
+                basic_salary=$21, bank_name=$22, account_number=$23,
+                photo_url = COALESCE($24, photo_url),
+                cv_url = COALESCE($25, cv_url),
+                certificates_url = COALESCE($26, certificates_url),
+                nic_copy_url = COALESCE($27, nic_copy_url),
+                status = COALESCE($28, status)
+            WHERE id=$29 RETURNING *
+        `;
+
+        const values = [
+            empId, name, programId, subject, designation, email, phone, whatsapp,
+            address, nic, dob || null, gender, maritalStatus,
+            joiningDate || null, qualification, degreeInstitute, gradYear,
+            appointmentType, previousExperience, department,
+            basicSalary || null, bankName, accountNumber,
+            photoUrl, cvUrl, certificatesUrl, nicCopyUrl, status,
+            id
+        ];
+
+        const result = await query(queryText, values);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Teacher not found' });
+        }
+        res.json(result.rows[0]);
+
+    } catch (err) {
+        console.error("Error updating teacher:", err);
+        res.status(500).json({ message: 'Server Error: ' + err.message });
+    }
+});
+
+// 5. DELETE TEACHER
+app.delete('/api/teachers/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await query('DELETE FROM teachers WHERE id = $1 RETURNING *', [id]);
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ message: 'Teacher not found' });
+        }
+
+        // Optionally delete files from filesystem here using fs.unlink
+
+        res.json({ message: 'Teacher deleted successfully' });
+    } catch (err) {
+        console.error("Error deleting teacher:", err);
         res.status(500).json({ message: 'Server Error' });
     }
 });
