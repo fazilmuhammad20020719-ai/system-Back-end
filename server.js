@@ -633,19 +633,26 @@ app.get('/api/teachers/:id/stats', async (req, res) => {
     }
 });
 
-// 2.2 GET TEACHER DOCUMENTS
+// ==========================================
+//        TEACHER DOCUMENT API ROUTES
+// ==========================================
+
+// 1. GET: ஒரு ஆசிரியரின் அனைத்து ஆவணங்களையும் பெறுதல்
 app.get('/api/teachers/:id/documents', async (req, res) => {
     try {
         const { id } = req.params;
-        const result = await query('SELECT * FROM teacher_documents WHERE teacher_id = $1 ORDER BY created_at DESC', [id]);
+        const result = await query(
+            'SELECT * FROM teacher_documents WHERE teacher_id = $1 ORDER BY created_at DESC',
+            [id]
+        );
         res.json(result.rows);
     } catch (err) {
-        console.error("Error fetching teacher documents:", err);
+        console.error("Error fetching documents:", err);
         res.status(500).json({ message: 'Server Error' });
     }
 });
 
-// 2.3 UPLOAD TEACHER DOCUMENT
+// 2. POST: புதிய ஆவணத்தை பதிவேற்றுதல் (Upload)
 app.post('/api/teachers/:id/documents', documentUpload, async (req, res) => {
     try {
         const { id } = req.params;
@@ -656,7 +663,11 @@ app.post('/api/teachers/:id/documents', documentUpload, async (req, res) => {
         }
 
         const fileUrl = `/uploads/${req.file.filename}`;
-        const fileSize = (req.file.size / 1024).toFixed(2) + ' KB'; // Simple conversion
+        // File Size-ஐ KB அல்லது MB-ல் மாற்ற
+        const sizeInMB = req.file.size / (1024 * 1024);
+        const fileSize = sizeInMB < 1
+            ? (req.file.size / 1024).toFixed(2) + ' KB'
+            : sizeInMB.toFixed(2) + ' MB';
 
         const result = await query(
             'INSERT INTO teacher_documents (teacher_id, name, file_url, file_size) VALUES ($1, $2, $3, $4) RETURNING *',
@@ -671,20 +682,52 @@ app.post('/api/teachers/:id/documents', documentUpload, async (req, res) => {
     }
 });
 
-// 2.4 DELETE TEACHER DOCUMENT
+// 3. PUT: ஆவணத்தின் பெயரை மாற்றுதல் (Edit Name)
+app.put('/api/teachers/:id/documents/:docId', async (req, res) => {
+    try {
+        const { docId } = req.params;
+        const { name } = req.body; // New Name
+
+        const result = await query(
+            'UPDATE teacher_documents SET name = $1 WHERE id = $2 RETURNING *',
+            [name, docId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Document not found' });
+        }
+        res.json(result.rows[0]);
+
+    } catch (err) {
+        console.error("Error updating document:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// 4. DELETE: ஆவணத்தை நீக்குதல் (Remove from DB & Folder)
 app.delete('/api/teachers/:id/documents/:docId', async (req, res) => {
     try {
-        const { id, docId } = req.params;
-        // Verify ownership
-        const check = await query('SELECT * FROM teacher_documents WHERE id=$1 AND teacher_id=$2', [docId, id]);
-        if (check.rows.length === 0) {
+        const { docId } = req.params;
+
+        // 1. முதலில் ஃபைலின் path-ஐ எடுக்கிறோம்
+        const fileResult = await query('SELECT file_url FROM teacher_documents WHERE id = $1', [docId]);
+
+        if (fileResult.rows.length === 0) {
             return res.status(404).json({ message: 'Document not found' });
         }
 
-        // Optional: Remove file from disk (fs.unlink) - simplified skip for now as per user instruction on general cleanup previously
+        const fileUrl = fileResult.rows[0].file_url;
 
-        await query('DELETE FROM teacher_documents WHERE id=$1', [docId]);
-        res.json({ message: 'Document deleted' });
+        // 2. Database-ல் இருந்து நீக்குதல்
+        await query('DELETE FROM teacher_documents WHERE id = $1', [docId]);
+
+        // 3. Uploads Folder-ல் இருந்தும் அந்த ஃபைலை நீக்குதல் (Optional but Recommended)
+        const filePath = path.join(__dirname, 'uploads', path.basename(fileUrl));
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath); // Delete actual file
+        }
+
+        res.json({ message: 'Document deleted successfully' });
 
     } catch (err) {
         console.error("Error deleting document:", err);
