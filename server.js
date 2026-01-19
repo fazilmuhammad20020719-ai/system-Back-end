@@ -66,12 +66,16 @@ const cpUpload = upload.fields([
 ]);
 
 // Teachers Upload Configuration
+// Teachers Upload Configuration
 const teacherUpload = upload.fields([
     { name: 'profilePhoto', maxCount: 1 },
     { name: 'cvFile', maxCount: 1 },
     { name: 'certificates', maxCount: 1 },
     { name: 'nicCopy', maxCount: 1 }
 ]);
+
+// New: Generic Document Upload (Single File)
+const documentUpload = upload.single('document');
 
 // --- DATABASE CONNECTION ---
 const pool = new Pool({
@@ -141,6 +145,15 @@ const runMigrations = async () => {
             program_id INTEGER REFERENCES programs(id),
             year VARCHAR(50),
             teacher_id INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );`,
+
+        `CREATE TABLE IF NOT EXISTS teacher_documents (
+            id SERIAL PRIMARY KEY,
+            teacher_id INTEGER REFERENCES teachers(id),
+            name VARCHAR(255) NOT NULL,
+            file_url TEXT NOT NULL,
+            file_size VARCHAR(50),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );`,
 
@@ -580,6 +593,101 @@ app.get('/api/teachers/:id', async (req, res) => {
         res.json(result.rows[0]);
     } catch (err) {
         console.error("Error fetching teacher:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// 2.1 GET TEACHER STATS
+app.get('/api/teachers/:id/stats', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // 1. Classes Assigned (Count of subjects where teacher_id matches)
+        const subjectsResult = await query('SELECT COUNT(*) FROM subjects WHERE teacher_id = $1', [id]);
+        const classesAssigned = parseInt(subjectsResult.rows[0].count);
+
+        // 2. Total Students (Count of students in the same program as the teacher - simplified logic)
+        // Better logic: Students in the classes this teacher teaches. 
+        // For now, let's just count students in the program the teacher is assigned to (primary assignment).
+        // Fetch teacher's program_id first
+        const teacherRes = await query('SELECT program_id FROM teachers WHERE id = $1', [id]);
+        let totalStudents = 0;
+
+        if (teacherRes.rows.length > 0 && teacherRes.rows[0].program_id) {
+            const studentsRes = await query('SELECT COUNT(*) FROM students WHERE program_id = $1', [teacherRes.rows[0].program_id]);
+            totalStudents = parseInt(studentsRes.rows[0].count);
+        }
+
+        // 3. Avg Attendance (Placeholder for now until Attendance module is fully ready)
+        const avgAttendance = "0%";
+
+        res.json({
+            classesAssigned,
+            totalStudents,
+            avgAttendance
+        });
+
+    } catch (err) {
+        console.error("Error fetching teacher stats:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// 2.2 GET TEACHER DOCUMENTS
+app.get('/api/teachers/:id/documents', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await query('SELECT * FROM teacher_documents WHERE teacher_id = $1 ORDER BY created_at DESC', [id]);
+        res.json(result.rows);
+    } catch (err) {
+        console.error("Error fetching teacher documents:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// 2.3 UPLOAD TEACHER DOCUMENT
+app.post('/api/teachers/:id/documents', documentUpload, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name } = req.body;
+
+        if (!req.file) {
+            return res.status(400).json({ message: 'No file uploaded' });
+        }
+
+        const fileUrl = `/uploads/${req.file.filename}`;
+        const fileSize = (req.file.size / 1024).toFixed(2) + ' KB'; // Simple conversion
+
+        const result = await query(
+            'INSERT INTO teacher_documents (teacher_id, name, file_url, file_size) VALUES ($1, $2, $3, $4) RETURNING *',
+            [id, name || req.file.originalname, fileUrl, fileSize]
+        );
+
+        res.status(201).json(result.rows[0]);
+
+    } catch (err) {
+        console.error("Error uploading document:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// 2.4 DELETE TEACHER DOCUMENT
+app.delete('/api/teachers/:id/documents/:docId', async (req, res) => {
+    try {
+        const { id, docId } = req.params;
+        // Verify ownership
+        const check = await query('SELECT * FROM teacher_documents WHERE id=$1 AND teacher_id=$2', [docId, id]);
+        if (check.rows.length === 0) {
+            return res.status(404).json({ message: 'Document not found' });
+        }
+
+        // Optional: Remove file from disk (fs.unlink) - simplified skip for now as per user instruction on general cleanup previously
+
+        await query('DELETE FROM teacher_documents WHERE id=$1', [docId]);
+        res.json({ message: 'Document deleted' });
+
+    } catch (err) {
+        console.error("Error deleting document:", err);
         res.status(500).json({ message: 'Server Error' });
     }
 });
