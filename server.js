@@ -13,6 +13,8 @@ const studentRoutes = require('./routes/studentRoutes');
 const teacherRoutes = require('./routes/teacherRoutes');
 const programRoutes = require('./routes/programRoutes');
 const subjectRoutes = require('./routes/subjectRoutes');
+const attendanceRoutes = require('./routes/attendanceRoutes');
+const scheduleRoutes = require('./routes/scheduleRoutes');
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -37,6 +39,9 @@ app.use('/api/students', studentRoutes);
 app.use('/api/teachers', teacherRoutes);
 app.use('/api/programs', programRoutes);
 app.use('/api/subjects', subjectRoutes);
+app.use('/api/attendance', attendanceRoutes);
+app.use('/api/calendar', require('./routes/calendarRoutes'));
+app.use('/api/schedules', scheduleRoutes);
 
 // --- UTILITY: Clear All Teacher Assigned Programs ---
 app.get('/api/utility/clear-teacher-programs', async (req, res) => {

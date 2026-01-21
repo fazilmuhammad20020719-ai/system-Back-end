@@ -99,6 +99,46 @@ const runMigrations = async () => {
             nic_copy_url TEXT,
             status VARCHAR(20) DEFAULT 'Active',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );`,
+
+        // Rename 'attendance' to 'student_attendance' if exists (Preserve Data)
+        "DO $$ BEGIN IF EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'attendance') THEN ALTER TABLE attendance RENAME TO student_attendance; END IF; END $$;",
+
+        // Rename 'remarks' to 'reason' if exists in student_attendance
+        "DO $$ BEGIN IF EXISTS (SELECT FROM information_schema.columns WHERE table_name = 'student_attendance' AND column_name = 'remarks') THEN ALTER TABLE student_attendance RENAME COLUMN remarks TO reason; END IF; END $$;",
+
+        `CREATE TABLE IF NOT EXISTS student_attendance (
+            id SERIAL PRIMARY KEY,
+            student_id VARCHAR(20) REFERENCES students(id),
+            teacher_id INTEGER REFERENCES teachers(id),
+            date DATE NOT NULL,
+            status VARCHAR(20),
+            reason TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT unique_student_date UNIQUE (student_id, date),
+            CONSTRAINT unique_teacher_date UNIQUE (teacher_id, date)
+        );`,
+
+        `CREATE TABLE IF NOT EXISTS calendar_events (
+            id SERIAL PRIMARY KEY,
+            title TEXT NOT NULL,
+            description TEXT,
+            event_date DATE NOT NULL,
+            event_type VARCHAR(50),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );`,
+
+        `CREATE TABLE IF NOT EXISTS schedules (
+            id SERIAL PRIMARY KEY,
+            program_id INTEGER, 
+            subject_id INTEGER NOT NULL,
+            teacher_id INTEGER NOT NULL,
+            day_of_week VARCHAR(20) NOT NULL,
+            start_time TIME NOT NULL,
+            end_time TIME NOT NULL,
+            room VARCHAR(50),
+            grade_year VARCHAR(50),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );`
     ];
 
