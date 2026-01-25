@@ -3,9 +3,21 @@ const router = express.Router();
 const { query } = require('../db');
 
 // GET All Subjects
+// GET Subjects (Optional Filter by Program)
 router.get('/', async (req, res) => {
     try {
-        const result = await query('SELECT * FROM subjects ORDER BY id ASC');
+        const { programId } = req.query;
+        let queryText = 'SELECT * FROM subjects';
+        const params = [];
+
+        if (programId) {
+            queryText += ' WHERE program_id = $1';
+            params.push(programId);
+        }
+
+        queryText += ' ORDER BY id ASC';
+
+        const result = await query(queryText, params);
         res.json(result.rows);
     } catch (err) {
         console.error(err);

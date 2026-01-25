@@ -15,6 +15,7 @@ const programRoutes = require('./routes/programRoutes');
 const subjectRoutes = require('./routes/subjectRoutes');
 const attendanceRoutes = require('./routes/attendanceRoutes');
 const scheduleRoutes = require('./routes/scheduleRoutes');
+const examRoutes = require('./routes/examRoutes');
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -34,6 +35,7 @@ app.use('/uploads', express.static('uploads'));
 runMigrations();
 
 // --- ROUTES ---
+app.use('/api/exams', require('./routes/examRoutes'));
 app.use('/api', authRoutes); // /api/login
 app.use('/api/students', studentRoutes);
 app.use('/api/teachers', teacherRoutes);
