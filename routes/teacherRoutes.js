@@ -15,7 +15,7 @@ router.get('/', async (req, res) => {
                 t.marital_status, t.joining_date, t.qualification, t.degree_institute, t.grad_year,
                 t.appointment_type, t.previous_experience, t.department, t.basic_salary,
                 t.bank_name, t.account_number, t.photo_url, t.cv_url, t.certificates_url,
-                t.nic_copy_url, t.status, t.created_at,
+                t.nic_copy_url, t.nic_front_url, t.nic_back_url, t.birth_certificate_url, t.status, t.created_at,
                 p.name as program_name
             FROM teachers t
             LEFT JOIN programs p ON t.program_id = p.id
@@ -25,6 +25,37 @@ router.get('/', async (req, res) => {
     } catch (err) {
         console.error("Error fetching teachers:", err);
         res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// TEMPORARY FIX ROUTE
+router.get('/fix-gce-ol-data', async (req, res) => {
+    try {
+        const result = await query('SELECT id, name, assigned_programs FROM teachers');
+        let count = 0;
+        let details = [];
+
+        for (const t of result.rows) {
+            if (t.assigned_programs && t.assigned_programs.includes('GCE O/L')) {
+                const original = t.assigned_programs;
+                // Remove "GCE O/L" and deduplicate in one go
+                let parts = t.assigned_programs.split(',').map(p => p.trim()).filter(Boolean);
+                parts = parts.filter(p => p !== 'GCE O/L');
+                parts = [...new Set(parts)];
+
+                const newPrograms = parts.join(', ');
+
+                if (original !== newPrograms) {
+                    await query('UPDATE teachers SET assigned_programs = $1 WHERE id = $2', [newPrograms, t.id]);
+                    count++;
+                    details.push({ name: t.name, from: original, to: newPrograms });
+                }
+            }
+        }
+        res.json({ message: `Fixed ${count} teachers`, details });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send(err.message);
     }
 });
 
@@ -39,7 +70,7 @@ router.get('/:id', async (req, res) => {
                 t.marital_status, t.joining_date, t.qualification, t.degree_institute, t.grad_year,
                 t.appointment_type, t.previous_experience, t.department, t.basic_salary,
                 t.bank_name, t.account_number, t.photo_url, t.cv_url, t.certificates_url,
-                t.nic_copy_url, t.status, t.created_at,
+                t.nic_copy_url, t.nic_front_url, t.nic_back_url, t.birth_certificate_url, t.status, t.created_at,
                 p.name as program_name
             FROM teachers t
             LEFT JOIN programs p ON t.program_id = p.id
@@ -111,8 +142,11 @@ router.post('/', teacherUpload, async (req, res) => {
 
         const photoUrl = getFilePath('profilePhoto');
         const cvUrl = getFilePath('cvFile');
-        const certificatesUrl = getFilePath('certificates');
-        const nicCopyUrl = getFilePath('nicCopy');
+        const certificatesUrl = getFilePath('qualification') || getFilePath('certificates'); // Handle 'qualification' input
+        const nicCopyUrl = getFilePath('nicCopy'); // Legacy or full copy
+        const nicFrontUrl = getFilePath('nicFront');
+        const nicBackUrl = getFilePath('nicBack');
+        const birthCertificateUrl = getFilePath('birthCertificate');
 
         // Resolve program_id if program name is sent
         let programId = null;
@@ -138,13 +172,13 @@ router.post('/', teacherUpload, async (req, res) => {
                 joining_date, qualification, degree_institute, grad_year,
                 appointment_type, previous_experience, department,
                 basic_salary, bank_name, account_number, 
-                photo_url, cv_url, certificates_url, nic_copy_url, status
+                photo_url, cv_url, certificates_url, nic_copy_url, nic_front_url, nic_back_url, birth_certificate_url, status
             )
             VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 
                 $11, $12, $13, $14, $15, $16, $17, $18, 
                 $19, $20, $21, $22, $23, $24, $25, $26, 
-                $27, $28, $29 
+                $27, $28, $29, $30, $31, $32
             ) RETURNING *
         `;
 
@@ -154,8 +188,9 @@ router.post('/', teacherUpload, async (req, res) => {
             address, nic, dob || null, gender, maritalStatus,
             joiningDate || null, qualification, degreeInstitute, gradYear,
             appointmentType, previousExperience, department,
+
             basicSalary || 0, bankName, accountNumber,
-            photoUrl, cvUrl, certificatesUrl, nicCopyUrl, status || 'Active'
+            photoUrl, cvUrl, certificatesUrl, nicCopyUrl, nicFrontUrl, nicBackUrl, birthCertificateUrl, status || 'Active'
         ];
 
         const result = await query(queryText, values);
@@ -189,8 +224,11 @@ router.put('/:id', teacherUpload, async (req, res) => {
 
         const photoUrl = getFilePath('profilePhoto');
         const cvUrl = getFilePath('cvFile');
-        const certificatesUrl = getFilePath('certificates');
+        const certificatesUrl = getFilePath('qualification') || getFilePath('certificates');
         const nicCopyUrl = getFilePath('nicCopy');
+        const nicFrontUrl = getFilePath('nicFront');
+        const nicBackUrl = getFilePath('nicBack');
+        const birthCertificateUrl = getFilePath('birthCertificate');
 
         let programId = null;
         if (program) {
@@ -219,8 +257,11 @@ router.put('/:id', teacherUpload, async (req, res) => {
                 cv_url = COALESCE($26, cv_url),
                 certificates_url = COALESCE($27, certificates_url),
                 nic_copy_url = COALESCE($28, nic_copy_url),
-                status = $29
-            WHERE id=$30
+                status = $29,
+                nic_front_url = COALESCE($30, nic_front_url),
+                nic_back_url = COALESCE($31, nic_back_url),
+                birth_certificate_url = COALESCE($32, birth_certificate_url)
+            WHERE id=$33
             RETURNING *
         `;
 
@@ -232,6 +273,7 @@ router.put('/:id', teacherUpload, async (req, res) => {
             appointmentType, previousExperience, department,
             basicSalary || 0, bankName, accountNumber,
             photoUrl, cvUrl, certificatesUrl, nicCopyUrl, status,
+            nicFrontUrl, nicBackUrl, birthCertificateUrl,
             id
         ];
 

@@ -45,6 +45,9 @@ const runMigrations = async () => {
         // TEACHERS Category & Assigned Programs
         "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS teacher_category VARCHAR(50);",
         "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS assigned_programs TEXT;",
+        "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS nic_front_url TEXT;",
+        "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS nic_back_url TEXT;",
+        "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS birth_certificate_url TEXT;",
 
         // Unique Constraint for emp_id
         "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'teachers_emp_id_key') THEN ALTER TABLE teachers ADD CONSTRAINT teachers_emp_id_key UNIQUE (emp_id); END IF; END $$;",
@@ -97,6 +100,9 @@ const runMigrations = async () => {
             cv_url TEXT,
             certificates_url TEXT,
             nic_copy_url TEXT,
+            nic_front_url TEXT,
+            nic_back_url TEXT,
+            birth_certificate_url TEXT,
             status VARCHAR(20) DEFAULT 'Active',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );`,
@@ -138,7 +144,19 @@ const runMigrations = async () => {
             end_time TIME NOT NULL,
             room VARCHAR(50),
             grade_year VARCHAR(50),
+            start_date DATE,
+            end_date DATE,
+            type VARCHAR(50),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );`,
+
+        `CREATE TABLE IF NOT EXISTS class_sessions (
+            id SERIAL PRIMARY KEY,
+            schedule_id INTEGER REFERENCES schedules(id) ON DELETE CASCADE,
+            date DATE NOT NULL,
+            status VARCHAR(20) DEFAULT 'Completed', -- Completed, Cancelled
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT unique_session UNIQUE (schedule_id, date)
         );`
     ];
 

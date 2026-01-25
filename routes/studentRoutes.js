@@ -113,7 +113,7 @@ router.post('/', studentUpload, async (req, res) => {
 router.get('/', async (req, res) => {
     try {
         const result = await query(`
-            SELECT s.id, s.name, s.current_year as "currentYear", s.status, s.contact_number as contact, 
+            SELECT s.id, s.name, s.program_id, s.current_year as "currentYear", s.status, s.contact_number as contact, 
                    p.name as program, s.session_year as session, s.photo_url, s.guardian_name as guardian
             FROM students s
             LEFT JOIN programs p ON s.program_id = p.id

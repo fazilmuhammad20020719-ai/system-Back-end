@@ -2,30 +2,61 @@ const express = require('express');
 const router = express.Router();
 const { query } = require('../db');
 
-// 1. GET ATTENDANCE
-// Query: ?date=YYYY-MM-DD
+// 1. GET ATTENDANCE (Range & Status)
+// Query: ?date=YYYY-MM-DD OR ?startDate=...&endDate=...
 router.get('/', async (req, res) => {
     try {
-        const { date } = req.query;
-        if (!date) {
-            return res.status(400).json({ message: "Date is required" });
+        const { date, startDate, endDate } = req.query;
+
+        if (startDate && endDate) {
+            // 1. Get Explicit Sessions (Completed/Cancelled from new table)
+            const sessionRes = await query(
+                'SELECT schedule_id, date, status FROM class_sessions WHERE date >= $1 AND date <= $2',
+                [startDate, endDate]
+            );
+
+            // 2. Get Implicit Sessions (Legacy: If students present in schedule_attendance, it's Completed)
+            // We select DISTINCT schedule_id, date because multiple students have rows
+            const legacyRes = await query(
+                `SELECT DISTINCT schedule_id, date, 'Completed' as status 
+                 FROM schedule_attendance 
+                 WHERE date >= $1 AND date <= $2`,
+                [startDate, endDate]
+            );
+
+            // 3. Merge: Explicit takes precedence (e.g. if marked Cancelled, it stays Cancelled)
+            const sessionMap = {};
+
+            // Populate from Legacy first (default to Completed)
+            legacyRes.rows.forEach(row => {
+                const key = `${row.schedule_id}-${row.date.toISOString().split('T')[0]}`;
+                sessionMap[key] = row;
+            });
+
+            // Override with Explicit Sessions (Cancelled or explicitly Completed)
+            sessionRes.rows.forEach(row => {
+                const key = `${row.schedule_id}-${row.date.toISOString().split('T')[0]}`;
+                sessionMap[key] = row;
+            });
+
+            return res.json(Object.values(sessionMap));
         }
 
-        // Fetch student attendance
-        const studentRes = await query(
-            'SELECT * FROM student_attendance WHERE date = $1',
-            [date]
-        );
+        if (date) {
+            // Existing Logic for single date attendance view
+            const studentRes = await query(
+                'SELECT * FROM student_attendance WHERE date = $1',
+                [date]
+            );
+            const teacherRes = await query(
+                'SELECT * FROM teacher_attendance WHERE date = $1',
+                [date]
+            );
+            return res.json([...studentRes.rows, ...teacherRes.rows]);
+        }
 
-        // Fetch teacher attendance
-        const teacherRes = await query(
-            'SELECT * FROM teacher_attendance WHERE date = $1',
-            [date]
-        );
+        return res.status(400).json({ message: "Date or Range required" });
 
-        // Combine results
-        const combined = [...studentRes.rows, ...teacherRes.rows];
-        res.json(combined);
 
     } catch (err) {
         console.error("Error fetching attendance:", err);
@@ -91,8 +122,6 @@ router.post('/', async (req, res) => {
             values = [studentId, date, status, reason];
         } else {
             // Teacher: Upsert into teacher_attendance
-            // Note: teacher_attendance schema does not explicitly show 'reason', so currently omitting it or using check_in/out if appropriate.
-            // Assuming simplified schema: id, teacher_id, date, status, check_in, check_out, created_at
             queryText = `
                 INSERT INTO teacher_attendance (teacher_id, date, status)
                 VALUES ($1, $2, $3)
@@ -108,6 +137,109 @@ router.post('/', async (req, res) => {
 
     } catch (err) {
         console.error("Error saving attendance:", err);
+        res.status(500).json({ message: "Server Error" });
+    }
+});
+
+// 4. GET SCHEDULE ATTENDANCE
+router.get('/schedule', async (req, res) => {
+    try {
+        const { scheduleId, date } = req.query;
+        if (!scheduleId || !date) {
+            return res.status(400).json({ message: "Schedule ID and Date are required" });
+        }
+
+        const result = await query(
+            'SELECT * FROM schedule_attendance WHERE schedule_id = $1 AND date = $2',
+            [scheduleId, date]
+        );
+
+        res.json(result.rows);
+    } catch (err) {
+        console.error("Error fetching schedule attendance:", err);
+        res.status(500).json({ message: "Server Error" });
+    }
+});
+
+// 5. SAVE SCHEDULE ATTENDANCE (Bulk)
+router.post('/schedule', async (req, res) => {
+    try {
+        const { scheduleId, date, attendanceData } = req.body;
+        // attendanceData: [{ studentId, status }, ...]
+
+        if (!scheduleId || !date || !Array.isArray(attendanceData)) {
+            return res.status(400).json({ message: "Invalid payload" });
+        }
+
+        // We will execute multiple upserts. 
+        // For better performance in large batches, we might construct a single query, 
+        // but for a typical class size (30-50), loop is acceptable or a transaction.
+
+        try {
+            await query('BEGIN'); // Start Transaction
+
+            for (const item of attendanceData) {
+                const { studentId, status } = item;
+                const queryText = `
+                    INSERT INTO schedule_attendance (schedule_id, student_id, date, status)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (schedule_id, student_id, date)
+                    DO UPDATE SET status = EXCLUDED.status, created_at = CURRENT_TIMESTAMP
+                `;
+                await query(queryText, [scheduleId, studentId, date, status]);
+            }
+
+            await query('COMMIT'); // Commit
+
+            // ALSO Mark the session as 'Completed' in class_sessions
+            try {
+                const sessionQuery = `
+                    INSERT INTO class_sessions (schedule_id, date, status)
+                    VALUES ($1, $2, 'Completed')
+                    ON CONFLICT (schedule_id, date)
+                    DO UPDATE SET status = 'Completed', created_at = CURRENT_TIMESTAMP
+               `;
+                await query(sessionQuery, [scheduleId, date]);
+            } catch (sessionErr) {
+                console.error("Warning: Failed to update session status automatically", sessionErr);
+                // Don't fail the whole request for this, but log it.
+            }
+
+            res.json({ message: "Attendance saved successfully" });
+
+        } catch (err) {
+            await query('ROLLBACK');
+            throw err;
+        }
+
+    } catch (err) {
+        console.error("Error saving schedule attendance:", err);
+        res.status(500).json({ message: "Server Error" });
+    }
+});
+
+// 6. UPDATE SESSION STATUS (Cancel/Complete manual override)
+router.post('/session-status', async (req, res) => {
+    try {
+        const { scheduleId, date, status } = req.body;
+
+        if (!scheduleId || !date || !status) {
+            return res.status(400).json({ message: "Missing fields" });
+        }
+
+        const queryText = `
+            INSERT INTO class_sessions (schedule_id, date, status)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (schedule_id, date)
+            DO UPDATE SET status = EXCLUDED.status, created_at = CURRENT_TIMESTAMP
+            RETURNING *;
+        `;
+
+        const result = await query(queryText, [scheduleId, date, status]);
+        res.json(result.rows[0]);
+
+    } catch (err) {
+        console.error("Error updating session status:", err);
         res.status(500).json({ message: "Server Error" });
     }
 });

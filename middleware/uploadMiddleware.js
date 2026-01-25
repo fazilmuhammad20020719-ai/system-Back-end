@@ -48,7 +48,11 @@ const teacherUpload = upload.fields([
     { name: 'profilePhoto', maxCount: 1 },
     { name: 'cvFile', maxCount: 1 },
     { name: 'certificates', maxCount: 1 },
-    { name: 'nicCopy', maxCount: 1 }
+    { name: 'nicCopy', maxCount: 1 },
+    { name: 'qualification', maxCount: 1 },
+    { name: 'nicFront', maxCount: 1 },
+    { name: 'nicBack', maxCount: 1 },
+    { name: 'birthCertificate', maxCount: 1 }
 ]);
 
 // Generic Document Upload
