@@ -45,6 +45,7 @@ app.use('/api/subjects', subjectRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/calendar', require('./routes/calendarRoutes'));
 app.use('/api/schedules', scheduleRoutes);
+app.use('/api/slots', require('./routes/slotRoutes'));
 app.use('/api/exams', examRoutes);
 
 // --- UTILITY: Clear All Teacher Assigned Programs ---

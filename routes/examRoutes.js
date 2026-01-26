@@ -13,6 +13,7 @@ router.get('/', async (req, res) => {
             FROM exams e
             LEFT JOIN programs p ON e.program_id = p.id
             LEFT JOIN subjects s ON e.subject_id = s.id
+            ${req.query.slotId ? `WHERE e.slot_id = ${req.query.slotId}` : ''}
             ORDER BY e.exam_date DESC, e.start_time ASC
         `);
         res.json(result.rows);
@@ -25,13 +26,13 @@ router.get('/', async (req, res) => {
 // POST create a new exam
 router.post('/', async (req, res) => {
     try {
-        const { title, programId, subjectId, startDate, startTime, endTime, venue, totalMarks, description } = req.body;
+        const { title, programId, subjectId, startDate, startTime, endTime, venue, totalMarks, slotId } = req.body;
 
         const newExam = await query(
-            `INSERT INTO exams (title, program_id, subject_id, exam_date, start_time, end_time, venue, total_marks, status) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Upcoming') 
+            `INSERT INTO exams (title, program_id, subject_id, exam_date, start_time, end_time, venue, total_marks, status, slot_id) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Upcoming', $9) 
              RETURNING *`,
-            [title, programId, subjectId, startDate, startTime, endTime, venue, totalMarks || 100]
+            [title, programId, subjectId, startDate, startTime, endTime, venue, totalMarks || 100, slotId || null]
         );
 
         res.json(newExam.rows[0]);

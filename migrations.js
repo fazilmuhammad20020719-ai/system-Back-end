@@ -159,9 +159,20 @@ const runMigrations = async () => {
             CONSTRAINT unique_session UNIQUE (schedule_id, date)
         );`,
 
+        `CREATE TABLE IF NOT EXISTS examination_slots (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            program_id INTEGER REFERENCES programs(id),
+            start_date DATE NOT NULL,
+            end_date DATE NOT NULL,
+            status VARCHAR(50) DEFAULT 'Upcoming', -- Upcoming, Ongoing, Completed
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );`,
+
         `CREATE TABLE IF NOT EXISTS exams (
             id SERIAL PRIMARY KEY,
             title VARCHAR(255) NOT NULL,
+            slot_id INTEGER REFERENCES examination_slots(id) ON DELETE CASCADE,
             program_id INTEGER REFERENCES programs(id),
             subject_id INTEGER REFERENCES subjects(id),
             exam_date DATE NOT NULL,
