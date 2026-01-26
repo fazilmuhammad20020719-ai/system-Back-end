@@ -7,7 +7,7 @@ const { studentUpload } = require('../middleware/uploadMiddleware');
 router.post('/', studentUpload, async (req, res) => {
     try {
         const {
-            indexNumber, firstName, lastName, program, session, currentYear, status,
+            indexNumber, firstName, lastName, program, programId: bodyProgramId, session, currentYear, status,
             dob, gender, nic, email, phone,
             address, city, district, province,
             guardianName, guardianRelation, guardianOccupation, guardianPhone, guardianEmail,
@@ -38,9 +38,10 @@ router.post('/', studentUpload, async (req, res) => {
 
         const fullName = `${firstName} ${lastName}`.trim();
 
-        // Find Program ID based on name
-        let programId = null;
-        if (program) {
+        // Find Program ID: Use provided ID if available, otherwise lookup by name
+        let programId = typeof bodyProgramId !== 'undefined' && bodyProgramId !== '' ? bodyProgramId : null;
+
+        if (!programId && program) {
             const progResult = await query('SELECT id FROM programs WHERE name ILIKE $1', [`%${program}%`]);
             if (progResult.rows.length > 0) {
                 programId = progResult.rows[0].id;

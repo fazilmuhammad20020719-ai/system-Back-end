@@ -157,6 +157,32 @@ const runMigrations = async () => {
             status VARCHAR(20) DEFAULT 'Completed', -- Completed, Cancelled
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT unique_session UNIQUE (schedule_id, date)
+        );`,
+
+        `CREATE TABLE IF NOT EXISTS exams (
+            id SERIAL PRIMARY KEY,
+            title VARCHAR(255) NOT NULL,
+            program_id INTEGER REFERENCES programs(id),
+            subject_id INTEGER REFERENCES subjects(id),
+            exam_date DATE NOT NULL,
+            start_time TIME NOT NULL,
+            end_time TIME NOT NULL,
+            venue VARCHAR(100),
+            total_marks INTEGER,
+            status VARCHAR(20) DEFAULT 'Upcoming',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );`,
+
+        `CREATE TABLE IF NOT EXISTS exam_results (
+            id SERIAL PRIMARY KEY,
+            exam_id INTEGER REFERENCES exams(id) ON DELETE CASCADE,
+            student_id VARCHAR(50) REFERENCES students(id) ON DELETE CASCADE,
+            marks_obtained INTEGER,
+            grade VARCHAR(10),
+            status VARCHAR(20) DEFAULT 'Pending',
+            remarks TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(exam_id, student_id)
         );`
     ];
 

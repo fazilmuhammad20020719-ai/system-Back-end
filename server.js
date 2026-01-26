@@ -17,6 +17,7 @@ const attendanceRoutes = require('./routes/attendanceRoutes');
 const scheduleRoutes = require('./routes/scheduleRoutes');
 const examRoutes = require('./routes/examRoutes');
 
+
 const app = express();
 const port = process.env.PORT || 5000;
 
@@ -35,7 +36,7 @@ app.use('/uploads', express.static('uploads'));
 runMigrations();
 
 // --- ROUTES ---
-app.use('/api/exams', require('./routes/examRoutes'));
+
 app.use('/api', authRoutes); // /api/login
 app.use('/api/students', studentRoutes);
 app.use('/api/teachers', teacherRoutes);
@@ -44,6 +45,7 @@ app.use('/api/subjects', subjectRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/calendar', require('./routes/calendarRoutes'));
 app.use('/api/schedules', scheduleRoutes);
+app.use('/api/exams', examRoutes);
 
 // --- UTILITY: Clear All Teacher Assigned Programs ---
 app.get('/api/utility/clear-teacher-programs', async (req, res) => {
