@@ -6,7 +6,12 @@ const { query } = require('../db');
 router.get('/', async (req, res) => {
     try {
         const result = await query(`
-            SELECT s.*, p.name as program_name 
+            SELECT s.*, p.name as program_name,
+            CASE
+                WHEN CURRENT_DATE < s.start_date THEN 'Upcoming'
+                WHEN CURRENT_DATE >= s.start_date AND CURRENT_DATE <= s.end_date THEN 'Ongoing'
+                ELSE 'Completed'
+            END as status
             FROM examination_slots s
             LEFT JOIN programs p ON s.program_id = p.id
             ORDER BY s.start_date DESC
@@ -21,12 +26,12 @@ router.get('/', async (req, res) => {
 // POST Create Slot
 router.post('/', async (req, res) => {
     try {
-        const { name, programId, startDate, endDate, status } = req.body;
+        const { name, programId, startDate, endDate } = req.body;
         const result = await query(
             `INSERT INTO examination_slots (name, program_id, start_date, end_date, status)
-             VALUES ($1, $2, $3, $4, $5)
+             VALUES ($1, $2, $3, $4, 'Upcoming')
              RETURNING *`,
-            [name, programId, startDate, endDate, status || 'Upcoming']
+            [name, programId, startDate, endDate]
         );
         res.json(result.rows[0]);
     } catch (err) {
@@ -39,13 +44,13 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const { name, programId, startDate, endDate, status } = req.body;
+        const { name, programId, startDate, endDate } = req.body;
         const result = await query(
             `UPDATE examination_slots 
-             SET name=$1, program_id=$2, start_date=$3, end_date=$4, status=$5
-             WHERE id=$6
+             SET name=$1, program_id=$2, start_date=$3, end_date=$4
+             WHERE id=$5
              RETURNING *`,
-            [name, programId, startDate, endDate, status, id]
+            [name, programId, startDate, endDate, id]
         );
         res.json(result.rows[0]);
     } catch (err) {

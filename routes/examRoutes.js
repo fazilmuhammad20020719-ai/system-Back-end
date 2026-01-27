@@ -9,14 +9,29 @@ router.get('/', async (req, res) => {
             SELECT 
                 e.*,
                 p.name as program_name,
-                s.name as subject_name
+                s.name as subject_name,
+                (
+                    SELECT json_agg(ep.* ORDER BY ep.exam_date, ep.start_time)
+                    FROM exam_parts ep
+                    WHERE ep.exam_id = e.id
+                ) as parts,
+                CASE
+                    WHEN (SELECT COUNT(*) FROM exam_parts ep WHERE ep.exam_id = e.id AND CURRENT_DATE > ep.exam_date) = (SELECT COUNT(*) FROM exam_parts ep WHERE ep.exam_id = e.id) THEN 'Completed'
+                    WHEN (SELECT COUNT(*) FROM exam_parts ep WHERE ep.exam_id = e.id AND CURRENT_DATE < ep.exam_date) = (SELECT COUNT(*) FROM exam_parts ep WHERE ep.exam_id = e.id) THEN 'Upcoming'
+                    ELSE 'Ongoing'
+                END as dynamic_status
             FROM exams e
             LEFT JOIN programs p ON e.program_id = p.id
             LEFT JOIN subjects s ON e.subject_id = s.id
             ${req.query.slotId ? `WHERE e.slot_id = ${req.query.slotId}` : ''}
             ORDER BY e.exam_date DESC, e.start_time ASC
         `);
-        res.json(result.rows);
+        // Map dynamic status to status for frontend consistency if needed, or frontend can use dynamic_status
+        const exams = result.rows.map(exam => ({
+            ...exam,
+            status: exam.dynamic_status || exam.status
+        }));
+        res.json(exams);
     } catch (err) {
         console.error(err.message);
         res.status(500).send('Server Error');
@@ -25,20 +40,44 @@ router.get('/', async (req, res) => {
 
 // POST create a new exam
 router.post('/', async (req, res) => {
+    const client = await pool.connect();
     try {
-        const { title, programId, subjectId, startDate, startTime, endTime, venue, totalMarks, slotId } = req.body;
+        await client.query('BEGIN');
+        const { title, programId, subjectId, totalMarks, slotId, parts, examType } = req.body;
+        // parts array: [{ name, date, startTime, endTime, venue }]
 
-        const newExam = await query(
-            `INSERT INTO exams (title, program_id, subject_id, exam_date, start_time, end_time, venue, total_marks, status, slot_id) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Upcoming', $9) 
+        if (!parts || parts.length === 0) {
+            return res.status(400).send('At least one exam part is required.');
+        }
+
+        // 1. Create Parent Exam
+        // For single part compatibility, we can set main date/time from the first part
+        const firstPart = parts[0];
+        const newExamRes = await client.query(
+            `INSERT INTO exams (title, program_id, subject_id, exam_date, start_time, end_time, venue, total_marks, status, slot_id, exam_type) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Upcoming', $9, $10) 
              RETURNING *`,
-            [title, programId, subjectId, startDate, startTime, endTime, venue, totalMarks || 100, slotId || null]
+            [title, programId, subjectId, firstPart.date, firstPart.startTime, firstPart.endTime, firstPart.venue, totalMarks || 100, slotId || null, examType || 'Single']
         );
+        const newExam = newExamRes.rows[0];
 
-        res.json(newExam.rows[0]);
+        // 2. Insert Parts
+        for (const part of parts) {
+            await client.query(
+                `INSERT INTO exam_parts (exam_id, name, exam_date, start_time, end_time, venue)
+                 VALUES ($1, $2, $3, $4, $5, $6)`,
+                [newExam.id, part.name, part.date, part.startTime, part.endTime, part.venue]
+            );
+        }
+
+        await client.query('COMMIT');
+        res.json(newExam);
     } catch (err) {
+        await client.query('ROLLBACK');
         console.error(err.message);
         res.status(500).send('Server Error');
+    } finally {
+        client.release();
     }
 });
 

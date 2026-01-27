@@ -169,6 +169,9 @@ const runMigrations = async () => {
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );`,
 
+        // Fix permissions for examination_slots
+        "GRANT ALL PRIVILEGES ON TABLE examination_slots TO PUBLIC;",
+
         `CREATE TABLE IF NOT EXISTS exams (
             id SERIAL PRIMARY KEY,
             title VARCHAR(255) NOT NULL,
@@ -194,6 +197,39 @@ const runMigrations = async () => {
             remarks TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(exam_id, student_id)
+        );`,
+
+        // --- MULTI-PART EXAM MIGRATION ---
+        // 1. Add exam_type to exams
+        "ALTER TABLE exams ADD COLUMN IF NOT EXISTS exam_type VARCHAR(20) DEFAULT 'Single';", // Single, Multi
+
+        // 2. Create exam_parts table
+        `CREATE TABLE IF NOT EXISTS exam_parts (
+            id SERIAL PRIMARY KEY,
+            exam_id INTEGER REFERENCES exams(id) ON DELETE CASCADE,
+            name VARCHAR(100) DEFAULT 'Main Exam',
+            exam_date DATE NOT NULL,
+            start_time TIME NOT NULL,
+            end_time TIME NOT NULL,
+            venue VARCHAR(100),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );`,
+
+        // 3. Migrate existing data: Create a default part for exams that don't have parts yet (and have legacy data)
+        `INSERT INTO exam_parts (exam_id, name, exam_date, start_time, end_time, venue)
+         SELECT id, 'Main Exam', exam_date, start_time, end_time, venue
+         FROM exams
+         WHERE id NOT IN (SELECT DISTINCT exam_id FROM exam_parts)
+         AND exam_date IS NOT NULL;`,
+
+        // --- TEACHER ATTENDANCE TABLE ---
+        `CREATE TABLE IF NOT EXISTS teacher_attendance (
+            id SERIAL PRIMARY KEY,
+            teacher_id INTEGER REFERENCES teachers(id),
+            date DATE NOT NULL,
+            status VARCHAR(20), -- Present, Absent, Holiday, Late, Leave
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT unique_teacher_attendance UNIQUE (teacher_id, date)
         );`
     ];
 

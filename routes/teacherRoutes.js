@@ -87,6 +87,35 @@ router.get('/:id', async (req, res) => {
     }
 });
 
+// 2.2 GET TEACHER ATTENDANCE (Range)
+// Example: /api/teachers/1/attendance?startDate=2025-01-01&endDate=2025-01-31
+router.get('/:id/attendance', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { startDate, endDate } = req.query;
+
+        // Fetch records for this teacher in the date range
+        const result = await query(
+            `SELECT date, status 
+             FROM teacher_attendance 
+             WHERE teacher_id = $1 AND date >= $2 AND date <= $3`,
+            [id, startDate, endDate]
+        );
+
+        // Normalize dates to YYYY-MM-DD strings to ensure they match frontend keys
+        // Note: 'en-CA' locale forces YYYY-MM-DD format
+        const formatted = result.rows.map(row => ({
+            ...row,
+            date: new Date(row.date).toLocaleDateString('en-CA')
+        }));
+
+        res.json(formatted);
+    } catch (err) {
+        console.error("Error fetching teacher attendance:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
 // 2.1 GET TEACHER STATS
 router.get('/:id/stats', async (req, res) => {
     try {

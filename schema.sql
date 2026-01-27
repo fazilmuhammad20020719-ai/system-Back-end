@@ -114,4 +114,13 @@ CREATE TABLE IF NOT EXISTS alerts (
     due_date DATE,
     color_theme VARCHAR(50) -- e.g. 'red', 'orange'
 );
-
+-- Examination Slots Table
+CREATE TABLE IF NOT EXISTS examination_slots (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    program_id INTEGER REFERENCES programs(id) ON DELETE CASCADE,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    status VARCHAR(50) DEFAULT 'Upcoming',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

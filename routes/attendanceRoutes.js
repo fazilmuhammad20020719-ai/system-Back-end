@@ -6,7 +6,16 @@ const { query } = require('../db');
 // Query: ?date=YYYY-MM-DD OR ?startDate=...&endDate=...
 router.get('/', async (req, res) => {
     try {
-        const { date, startDate, endDate } = req.query;
+        const { date, startDate, endDate, teacherId } = req.query;
+
+        // 0. GET TEACHER ATTENDANCE (Range)
+        if (teacherId && startDate && endDate) {
+            const result = await query(
+                'SELECT * FROM teacher_attendance WHERE teacher_id = $1 AND date >= $2 AND date <= $3',
+                [teacherId, startDate, endDate]
+            );
+            return res.json(result.rows);
+        }
 
         if (startDate && endDate) {
             // 1. Get Explicit Sessions (Completed/Cancelled from new table)

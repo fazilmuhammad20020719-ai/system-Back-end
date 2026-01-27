@@ -148,6 +148,35 @@ router.get('/:id', async (req, res) => {
     }
 });
 
+// 5. GET STUDENT ATTENDANCE (Range)
+// Example: /api/students/1001/attendance?startDate=2025-01-01&endDate=2025-01-31
+router.get('/:id/attendance', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { startDate, endDate } = req.query;
+
+        // Fetch records for this student in the date range from student_attendance table
+        const result = await query(
+            `SELECT date, status 
+             FROM student_attendance 
+             WHERE student_id = $1 AND date >= $2 AND date <= $3`,
+            [id, startDate, endDate]
+        );
+
+        // Normalize dates to YYYY-MM-DD strings
+        // 'en-CA' locale is a reliable way to get YYYY-MM-DD format
+        const formatted = result.rows.map(row => ({
+            ...row,
+            date: new Date(row.date).toLocaleDateString('en-CA')
+        }));
+
+        res.json(formatted);
+    } catch (err) {
+        console.error("Error fetching student attendance:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
 // --- 4. DELETE STUDENT ---
 router.delete('/:id', async (req, res) => {
     try {
