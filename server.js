@@ -63,6 +63,18 @@ app.get('/api/utility/clear-teacher-programs', async (req, res) => {
     }
 });
 
+// --- UTILITY: Fix Missing Columns (Temporary) ---
+app.get('/api/fix-missing-columns', async (req, res) => {
+    try {
+        await query("ALTER TABLE exams ADD COLUMN IF NOT EXISTS slot_id INTEGER REFERENCES examination_slots(id) ON DELETE CASCADE;");
+        await query("ALTER TABLE exams ADD COLUMN IF NOT EXISTS supervisor_id INTEGER REFERENCES teachers(id);");
+        res.json({ message: "Successfully added slot_id and supervisor_id columns to exams table." });
+    } catch (err) {
+        console.error("Error fixing columns:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // --- START SERVER ---
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);

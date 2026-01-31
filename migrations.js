@@ -29,6 +29,12 @@ const runMigrations = async () => {
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS google_map_link TEXT;",
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS latitude DECIMAL(10, 8);",
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS longitude DECIMAL(11, 8);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS ds_division VARCHAR(100);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS gn_division VARCHAR(100);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS guardian_email VARCHAR(100);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS last_studied_grade VARCHAR(50);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS previous_college VARCHAR(150);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS whatsapp VARCHAR(20);",
 
         // Teachers Table Updates
         "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS department VARCHAR(100);",
@@ -201,6 +207,8 @@ const runMigrations = async () => {
 
         // --- MULTI-PART EXAM MIGRATION ---
         // 1. Add exam_type to exams
+        "ALTER TABLE exams ADD COLUMN IF NOT EXISTS slot_id INTEGER REFERENCES examination_slots(id) ON DELETE CASCADE;",
+        "ALTER TABLE exams ADD COLUMN IF NOT EXISTS supervisor_id INTEGER REFERENCES teachers(id);",
         "ALTER TABLE exams ADD COLUMN IF NOT EXISTS exam_type VARCHAR(20) DEFAULT 'Single';", // Single, Multi
 
         // 2. Create exam_parts table
@@ -222,6 +230,26 @@ const runMigrations = async () => {
          WHERE id NOT IN (SELECT DISTINCT exam_id FROM exam_parts)
          AND exam_date IS NOT NULL;`,
 
+        // --- MULTI-PROGRAM SUPPORT ---
+        `CREATE TABLE IF NOT EXISTS student_enrollments (
+            id SERIAL PRIMARY KEY,
+            student_id VARCHAR(20) REFERENCES students(id) ON DELETE CASCADE,
+            program_id INTEGER REFERENCES programs(id),
+            current_year VARCHAR(50),
+            session_year VARCHAR(10),
+            status VARCHAR(20) DEFAULT 'Active',
+            admission_date DATE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT unique_student_program UNIQUE (student_id, program_id)
+        );`,
+
+        // Migrate existing data (One-time migration)
+        `INSERT INTO student_enrollments (student_id, program_id, current_year, session_year, status, admission_date)
+         SELECT id, program_id, current_year, session_year, status, admission_date
+         FROM students
+         WHERE program_id IS NOT NULL
+         AND id NOT IN (SELECT DISTINCT student_id FROM student_enrollments);`,
+
         // --- TEACHER ATTENDANCE TABLE ---
         `CREATE TABLE IF NOT EXISTS teacher_attendance (
             id SERIAL PRIMARY KEY,
@@ -237,14 +265,19 @@ const runMigrations = async () => {
         const client = await pool.connect();
         try {
             for (const q of alterQueries) {
-                await client.query(q);
+                try {
+                    await client.query(q);
+                } catch (innerErr) {
+                    console.warn(`Migration step failed: "${q.substring(0, 50)}..." - Error: ${innerErr.message}`);
+                    // Continue to next query
+                }
             }
-            console.log("Database schema checked/updated successfully.");
+            console.log("Database schema pass completed.");
         } finally {
             client.release();
         }
     } catch (err) {
-        console.error("Migration warning:", err.message);
+        console.error("Migration fatal error:", err.message);
     }
 };
 

@@ -64,7 +64,26 @@ CREATE TABLE IF NOT EXISTS students (
     leaving_certificate TEXT,
     google_map_link TEXT,
     latitude DECIMAL(10, 8),
-    longitude DECIMAL(11, 8)
+    longitude DECIMAL(11, 8),
+    ds_division VARCHAR(100),
+    gn_division VARCHAR(100),
+    guardian_email VARCHAR(100),
+    last_studied_grade VARCHAR(50),
+    previous_college VARCHAR(150),
+    whatsapp VARCHAR(20)
+);
+
+-- Student Enrollments Table (Many-to-Many)
+CREATE TABLE IF NOT EXISTS student_enrollments (
+    id SERIAL PRIMARY KEY,
+    student_id VARCHAR(20) REFERENCES students(id) ON DELETE CASCADE,
+    program_id INTEGER REFERENCES programs(id),
+    current_year VARCHAR(50),
+    session_year VARCHAR(10),
+    status VARCHAR(20) DEFAULT 'Active',
+    admission_date DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_student_program UNIQUE (student_id, program_id)
 );
 
 -- Teachers Table

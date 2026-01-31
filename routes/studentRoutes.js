@@ -9,11 +9,14 @@ router.post('/', studentUpload, async (req, res) => {
         const {
             indexNumber, firstName, lastName, program, programId: bodyProgramId, session, currentYear, status,
             dob, gender, nic, email, phone,
-            address, city, district, province,
+            address, city, district, province, dsDivision, gnDivision,
             guardianName, guardianRelation, guardianOccupation, guardianPhone, guardianEmail,
-            admissionDate, previousSchoolName, mediumOfStudy,
-            googleMapLink, latitude, longitude
+            admissionDate, previousSchoolName, mediumOfStudy, lastStudiedGrade, previousCollegeName,
+            googleMapLink, latitude, longitude, whatsapp
         } = req.body;
+
+        console.log("Saving Student Data - Body:", req.body);
+        console.log("Enrollments Payload:", req.body.enrollments);
 
         const getFilePath = (fieldName) => {
             if (req.files && req.files[fieldName]) {
@@ -57,7 +60,8 @@ router.post('/', studentUpload, async (req, res) => {
                 admission_date, previous_school, medium_of_study,
                 nic_front, nic_back, student_signature, birth_certificate, medical_report, 
                 guardian_nic, guardian_photo, leaving_certificate,
-                google_map_link, latitude, longitude
+                google_map_link, latitude, longitude,
+                ds_division, gn_division, guardian_email, last_studied_grade, previous_college, whatsapp
             )
             VALUES (
                 $1, $2, $3, $4, $5, $6, $7,
@@ -66,26 +70,32 @@ router.post('/', studentUpload, async (req, res) => {
                 $17, $18, $19, $20,
                 $21, $22, $23,
                 $24, $25, $26, $27, $28, $29, $30, $31,
-                $32, $33, $34
+                $32, $33, $34, $35, $36, $37, $38, $39, $40
             )
-            ON CONFLICT (id) DO UPDATE SET 
-                name=$2, program_id=$3, current_year=$4, session_year=$5, status=$6, contact_number=$7,
-                dob=$8, gender=$9, nic=$10, email=$11, 
-                photo_url = COALESCE($12, students.photo_url), 
-                address=$13, city=$14, district=$15, province=$16,
-                guardian_name=$17, guardian_relation=$18, guardian_occupation=$19, guardian_phone=$20,
-                admission_date=$21, previous_school=$22, medium_of_study=$23,
-                nic_front = COALESCE($24, students.nic_front),
-                nic_back = COALESCE($25, students.nic_back),
-                student_signature = COALESCE($26, students.student_signature),
-                birth_certificate = COALESCE($27, students.birth_certificate),
-                medical_report = COALESCE($28, students.medical_report),
-                guardian_nic = COALESCE($29, students.guardian_nic),
-                guardian_photo = COALESCE($30, students.guardian_photo),
-                leaving_certificate = COALESCE($31, students.leaving_certificate),
-                google_map_link = $32,
-                latitude = $33,
-                longitude = $34
+            ON CONFLICT(id) DO UPDATE SET
+            name = $2, program_id = $3, current_year = $4, session_year = $5, status = $6, contact_number = $7,
+            dob = $8, gender = $9, nic = $10, email = $11,
+            photo_url = COALESCE($12, students.photo_url),
+            address = $13, city = $14, district = $15, province = $16,
+            guardian_name = $17, guardian_relation = $18, guardian_occupation = $19, guardian_phone = $20,
+            admission_date = $21, previous_school = $22, medium_of_study = $23,
+            nic_front = COALESCE($24, students.nic_front),
+            nic_back = COALESCE($25, students.nic_back),
+            student_signature = COALESCE($26, students.student_signature),
+            birth_certificate = COALESCE($27, students.birth_certificate),
+            medical_report = COALESCE($28, students.medical_report),
+            guardian_nic = COALESCE($29, students.guardian_nic),
+            guardian_photo = COALESCE($30, students.guardian_photo),
+            leaving_certificate = COALESCE($31, students.leaving_certificate),
+            google_map_link = $32,
+            latitude = $33,
+            longitude = $34,
+            ds_division = $35,
+            gn_division = $36,
+            guardian_email = $37,
+            last_studied_grade = $38,
+            previous_college = $39,
+            whatsapp = $40
         `;
 
         const values = [
@@ -98,10 +108,62 @@ router.post('/', studentUpload, async (req, res) => {
             guardianNic, guardianPhoto, leavingCertificate,
             googleMapLink || null,
             latitude || null,
-            longitude || null
+            longitude || null,
+            dsDivision || null, gnDivision || null, guardianEmail || null,
+            lastStudiedGrade || null, previousCollegeName || null, whatsapp || null
         ];
 
         await query(queryText, values);
+
+        // --- Handle Multi-Enrollments ---
+        // Expecting req.body.enrollments as JSON string or array
+        let enrollments = [];
+        if (req.body.enrollments) {
+            try {
+                enrollments = typeof req.body.enrollments === 'string'
+                    ? JSON.parse(req.body.enrollments)
+                    : req.body.enrollments;
+            } catch (e) {
+                console.error("Error parsing enrollments:", e);
+            }
+        }
+
+        // Fallback: If no explicit enrollments but legacy fields exist, create one enrollment
+        if (enrollments.length === 0 && programId) {
+            enrollments.push({
+                programId: programId,
+                currentYear: currentYear || '',
+                session: session || '',
+                status: status || 'Active',
+                admissionDate: admissionDate || null
+            });
+        }
+
+        // Sync Enrollments: Delete existing (simple way for full sync) and insert new
+        // Ideally should be smarter (update existing), but delete-insert is safer for sync
+        if (enrollments.length > 0) {
+            // First, delete current enrollments
+            await query('DELETE FROM student_enrollments WHERE student_id = $1', [indexNumber]);
+
+            // Insert new ones
+            for (const enr of enrollments) {
+                if (!enr.programId) continue;
+                await query(`
+                    INSERT INTO student_enrollments (student_id, program_id, current_year, session_year, status, admission_date)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                    ON CONFLICT (student_id, program_id) DO UPDATE SET
+                    current_year = $3, session_year = $4, status = $5, admission_date = $6
+                `, [
+                    indexNumber,
+                    enr.programId,
+                    enr.currentYear,
+                    enr.session || enr.session_year,
+                    enr.status || 'Active',
+                    enr.admissionDate ? enr.admissionDate : null
+                ]);
+            }
+        }
+
         res.status(201).json({ message: 'Student details saved successfully' });
 
     } catch (err) {
@@ -114,16 +176,36 @@ router.post('/', studentUpload, async (req, res) => {
 router.get('/', async (req, res) => {
     try {
         const result = await query(`
-            SELECT s.id, s.name, s.program_id, s.current_year as "currentYear", s.status, s.contact_number as contact, 
-                   p.name as program, s.session_year as session, s.photo_url, s.guardian_name as guardian
+            SELECT s.id, s.name, s.status, s.contact_number as contact, s.photo_url, s.guardian_name as guardian,
+            s.dob, s.gender, s.nic, s.email,
+            -- Legacy fields for backward compatibility (taking the first one found or arbitrary)
+            MAX(p.name) as program, 
+            MAX(se.current_year) as "currentYear", 
+            MAX(se.session_year) as session,
+            
+            -- Aggregated Enrollments
+            COALESCE(
+               JSON_AGG(
+                   JSON_BUILD_OBJECT(
+                       'program', p.name,
+                       'status', se.status,
+                       'year', se.current_year,
+                       'session', se.session_year
+                   ) ORDER BY se.admission_date DESC
+               ) FILTER (WHERE p.id IS NOT NULL),
+               '[]'
+            ) as enrollments_summary
+
             FROM students s
-            LEFT JOIN programs p ON s.program_id = p.id
+            LEFT JOIN student_enrollments se ON s.id = se.student_id
+            LEFT JOIN programs p ON se.program_id = p.id
+            GROUP BY s.id
             ORDER BY s.created_at DESC
-        `);
+            `);
         res.json(result.rows);
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Server error' });
+        console.error("Error fetching students:", err);
+        res.status(500).json({ message: 'Server error fetching students' });
     }
 });
 
@@ -132,16 +214,41 @@ router.get('/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const result = await query(`
-            SELECT s.*, p.name as program_name, p.duration as program_duration
+            SELECT s.*, 
+            -- Legacy join for fallback
+            p.name as program_name, p.duration as program_duration,
+            
+            -- Aggregated Enrollments (Standardized keys matching GET /)
+            COALESCE(
+               JSON_AGG(
+                   JSON_BUILD_OBJECT(
+                       'program', p_enr.name,
+                       'program_id', se.program_id,
+                       'year', se.current_year,
+                       'session', se.session_year,
+                       'status', se.status,
+                       'admission_date', se.admission_date
+                   ) ORDER BY se.admission_date DESC
+               ) FILTER (WHERE p_enr.id IS NOT NULL),
+               '[]'
+            ) as enrollments
+
             FROM students s
             LEFT JOIN programs p ON s.program_id = p.id
+            LEFT JOIN student_enrollments se ON s.id = se.student_id
+            LEFT JOIN programs p_enr ON se.program_id = p_enr.id
             WHERE s.id = $1
-        `, [id]);
+            GROUP BY s.id, p.name, p.duration
+            `, [id]);
 
         if (result.rows.length === 0) {
             return res.status(404).json({ message: 'Student not found' });
         }
-        res.json(result.rows[0]);
+
+        const student = result.rows[0];
+        // student.enrollments is now a JSON array from the query
+
+        res.json(student);
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Server error' });

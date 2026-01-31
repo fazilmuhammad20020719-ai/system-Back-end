@@ -2,10 +2,11 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
-// 1. GET ALL EXAMS
+// 1. GET ALL EXAMS (With Filtering & Parts)
 router.get('/', async (req, res) => {
     try {
-        const result = await db.query(`
+        const { slotId } = req.query;
+        let queryText = `
             SELECT 
                 e.*, 
                 p.name as program_name, 
@@ -18,17 +19,32 @@ router.get('/', async (req, res) => {
             LEFT JOIN programs p ON e.program_id = p.id
             LEFT JOIN subjects s ON e.subject_id = s.id
             LEFT JOIN teachers t ON e.supervisor_id = t.id
-            ORDER BY e.exam_date DESC, e.start_time ASC
-        `);
+        `;
 
-        const exams = result.rows.map(exam => {
+        const params = [];
+        if (slotId) {
+            queryText += ` WHERE e.slot_id = $1`;
+            params.push(slotId);
+        }
+
+        queryText += ` ORDER BY e.exam_date DESC, e.start_time ASC`;
+
+        const result = await db.query(queryText, params);
+
+        // Fetch Parts for these exams
+        // This could be optimized, but map implementation is safest for now
+        const exams = await Promise.all(result.rows.map(async (exam) => {
             try {
+                // Fetch Parts
+                const partsRes = await db.query(`SELECT * FROM exam_parts WHERE exam_id = $1 ORDER BY exam_date, start_time`, [exam.id]);
+                exam.parts = partsRes.rows;
+
                 const now = new Date();
                 // Safe Date Parsing
                 if (!exam.exam_date) return exam;
 
                 const dateObj = new Date(exam.exam_date);
-                if (isNaN(dateObj.getTime())) return exam; // Invalid Date
+                if (isNaN(dateObj.getTime())) return exam;
 
                 const dateStr = dateObj.toISOString().split('T')[0];
 
@@ -51,7 +67,6 @@ router.get('/', async (req, res) => {
                     } else if (now >= examStart && now <= examEnd) {
                         dynamicStatus = 'Ongoing';
                     } else {
-                        // implied upcoming if not started
                         if (dynamicStatus !== 'Upcoming' && now < examStart) {
                             dynamicStatus = 'Upcoming';
                         }
@@ -60,10 +75,9 @@ router.get('/', async (req, res) => {
 
                 return { ...exam, status: dynamicStatus };
             } catch (e) {
-                // If anything fails in calculation, just return the exam as is
                 return exam;
             }
-        });
+        }));
 
         res.json(exams);
     } catch (err) {
@@ -85,15 +99,16 @@ router.post('/', async (req, res) => {
             subjectId, subject_id,
             parts,
             studentIds, student_ids,
-            supervisorId // New field
+            supervisorId,
+            slotId, slot_id
         } = req.body;
 
-        // Resolve IDs
         const pId = programId || program_id;
         const sId = subjectId || subject_id;
         const stIds = studentIds || student_ids;
+        const slId = slotId || slot_id;
 
-        // Extract Schedule
+        // Extract Schedule from first part for the main record
         let examDate, startTime, endTime, place;
 
         if (parts && Array.isArray(parts) && parts.length > 0) {
@@ -109,20 +124,28 @@ router.post('/', async (req, res) => {
             place = req.body.venue;
         }
 
-        // Validate
-        if (!examDate) {
-            throw new Error("Exam date is required");
-        }
+        if (!examDate) throw new Error("Exam date is required");
 
-        // A. Insert Exam
+        // A. Insert Main Exam Record
         const examRes = await client.query(
-            `INSERT INTO exams (title, program_id, subject_id, exam_date, start_time, end_time, venue, total_marks, supervisor_id) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-            [title, pId, sId, examDate, startTime, endTime, place, 100, supervisorId || null]
+            `INSERT INTO exams (title, program_id, subject_id, exam_date, start_time, end_time, venue, total_marks, supervisor_id, slot_id) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+            [title, pId, sId, examDate, startTime, endTime, place, 100, supervisorId || null, slId || null]
         );
         const examId = examRes.rows[0].id;
 
-        // B. Add Students
+        // B. Insert Parts (if any)
+        if (parts && Array.isArray(parts)) {
+            for (const part of parts) {
+                await client.query(
+                    `INSERT INTO exam_parts (exam_id, name, exam_date, start_time, end_time, venue)
+                     VALUES ($1, $2, $3, $4, $5, $6)`,
+                    [examId, part.name, part.date, part.startTime, part.endTime, part.venue]
+                );
+            }
+        }
+
+        // C. Add Students
         if (stIds && stIds.length > 0) {
             for (const studId of stIds) {
                 await client.query(
