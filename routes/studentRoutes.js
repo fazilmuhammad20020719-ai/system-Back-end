@@ -1,7 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { query } = require('../db');
-const { studentUpload } = require('../middleware/uploadMiddleware');
+const { studentUpload, documentUpload } = require('../middleware/uploadMiddleware');
+const path = require('path');
+const fs = require('fs');
 
 // --- 1. SAVE STUDENT (ADD or EDIT) ---
 router.post('/', studentUpload, async (req, res) => {
@@ -12,7 +14,8 @@ router.post('/', studentUpload, async (req, res) => {
             address, city, district, province, dsDivision, gnDivision,
             guardianName, guardianRelation, guardianOccupation, guardianPhone, guardianEmail,
             admissionDate, previousSchoolName, mediumOfStudy, lastStudiedGrade, previousCollegeName,
-            googleMapLink, latitude, longitude, whatsapp
+
+            googleMapLink, latitude, longitude, whatsapp, monthlyFee
         } = req.body;
 
         console.log("Saving Student Data - Body:", req.body);
@@ -61,7 +64,7 @@ router.post('/', studentUpload, async (req, res) => {
                 nic_front, nic_back, student_signature, birth_certificate, medical_report, 
                 guardian_nic, guardian_photo, leaving_certificate,
                 google_map_link, latitude, longitude,
-                ds_division, gn_division, guardian_email, last_studied_grade, previous_college, whatsapp
+                    ds_division, gn_division, guardian_email, last_studied_grade, previous_college, whatsapp, monthly_fee
             )
             VALUES (
                 $1, $2, $3, $4, $5, $6, $7,
@@ -70,7 +73,7 @@ router.post('/', studentUpload, async (req, res) => {
                 $17, $18, $19, $20,
                 $21, $22, $23,
                 $24, $25, $26, $27, $28, $29, $30, $31,
-                $32, $33, $34, $35, $36, $37, $38, $39, $40
+                $32, $33, $34, $35, $36, $37, $38, $39, $40, $41
             )
             ON CONFLICT(id) DO UPDATE SET
             name = $2, program_id = $3, current_year = $4, session_year = $5, status = $6, contact_number = $7,
@@ -95,7 +98,8 @@ router.post('/', studentUpload, async (req, res) => {
             guardian_email = $37,
             last_studied_grade = $38,
             previous_college = $39,
-            whatsapp = $40
+            whatsapp = $40,
+            monthly_fee = $41
         `;
 
         const values = [
@@ -110,7 +114,7 @@ router.post('/', studentUpload, async (req, res) => {
             latitude || null,
             longitude || null,
             dsDivision || null, gnDivision || null, guardianEmail || null,
-            lastStudiedGrade || null, previousCollegeName || null, whatsapp || null
+            lastStudiedGrade || null, previousCollegeName || null, whatsapp || null, monthlyFee || 5000
         ];
 
         await query(queryText, values);
@@ -293,6 +297,244 @@ router.delete('/:id', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// ==========================================
+//        STUDENT DOCUMENT API ROUTES
+// ==========================================
+
+// 1. GET: Documents
+router.get('/:id/documents', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await query(
+            'SELECT * FROM student_documents WHERE student_id = $1 ORDER BY created_at DESC',
+            [id]
+        );
+        res.json(result.rows);
+    } catch (err) {
+        console.error("Error fetching documents:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// 2. POST: Upload Document
+router.post('/:id/documents', documentUpload, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name } = req.body;
+
+        if (!req.file) {
+            return res.status(400).json({ message: 'No file uploaded' });
+        }
+
+        const fileUrl = `/uploads/${req.file.filename}`;
+        const sizeInMB = req.file.size / (1024 * 1024);
+        const fileSize = sizeInMB < 1
+            ? (req.file.size / 1024).toFixed(2) + ' KB'
+            : sizeInMB.toFixed(2) + ' MB';
+
+        const result = await query(
+            'INSERT INTO student_documents (student_id, name, file_url, file_size) VALUES ($1, $2, $3, $4) RETURNING *',
+            [id, name || req.file.originalname, fileUrl, fileSize]
+        );
+
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        console.error("Error uploading document:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// 3. PUT: Edit Document Name
+router.put('/:id/documents/:docId', async (req, res) => {
+    try {
+        const { docId } = req.params;
+        const { name } = req.body;
+
+        const result = await query(
+            'UPDATE student_documents SET name = $1 WHERE id = $2 RETURNING *',
+            [name, docId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Document not found' });
+        }
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error("Error updating document:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// 4. DELETE: Document
+router.delete('/:id/documents/:docId', async (req, res) => {
+    try {
+        const { docId } = req.params;
+
+        const fileResult = await query('SELECT file_url FROM student_documents WHERE id = $1', [docId]);
+
+        if (fileResult.rows.length === 0) {
+            return res.status(404).json({ message: 'Document not found' });
+        }
+
+        const fileUrl = fileResult.rows[0].file_url;
+
+        // DB Delete
+        await query('DELETE FROM student_documents WHERE id = $1', [docId]);
+
+        // File Delete
+        // Assuming 'uploads' folder is relative to this router file or server root.
+        // We'll traverse up to root/uploads
+        const filePath = path.join(__dirname, '../uploads', path.basename(fileUrl));
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
+
+        res.json({ message: 'Document deleted successfully' });
+    } catch (err) {
+        console.error("Error deleting document:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// ==========================================
+//        STUDENT FEES API ROUTES
+// ==========================================
+
+// 1. GET: Fees
+router.get('/:id/fees', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await query(
+            'SELECT * FROM student_fees WHERE student_id = $1 ORDER BY created_at DESC',
+            [id]
+        );
+        res.json(result.rows);
+    } catch (err) {
+        console.error("Error fetching fees:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// 2. POST: Add Fee Payment
+router.post('/:id/fees', documentUpload, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { month, year, amount, status, date } = req.body;
+
+        // Handle Receipt Upload
+        let receiptUrl = null;
+        if (req.file) {
+            receiptUrl = `/uploads/${req.file.filename}`;
+        }
+
+        const result = await query(
+            `INSERT INTO student_fees (student_id, month, year, amount, status, paid_date, receipt_url) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+            [id, month, year, amount, status || 'Pending', date || null, receiptUrl]
+        );
+
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        console.error("Error adding fee:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// 3. PUT: Edit Fee
+router.put('/:id/fees/:feeId', documentUpload, async (req, res) => {
+    try {
+        const { feeId } = req.params;
+        const { month, year, amount, status, date } = req.body;
+
+        // Current Receipt Logic
+        let receiptUrlClause = "";
+        const values = [month, year, amount, status, date || null, feeId];
+        let paramIndex = 7;
+
+        if (req.file) {
+            const newReceiptUrl = `/uploads/${req.file.filename}`;
+            receiptUrlClause = `, receipt_url = $${paramIndex}`;
+            values.push(newReceiptUrl);
+        }
+
+        // Base Update Query
+        const queryText = `
+            UPDATE student_fees 
+            SET month = $1, year = $2, amount = $3, status = $4, paid_date = $5 ${receiptUrlClause}
+            WHERE id = $6 RETURNING *
+        `;
+
+        // Adjust values array for dynamic Receipt URL Param
+        // If file exists: values has 7 elements. $6 is feeId. $7 is Url.
+        // If file NO: values has 6 elements. $6 is feeId. Clause is empty.
+
+        // CORRECTION: values array needs to match query order.
+        // $1..$5 are fixed. 
+        // If receipt: ... receipt_url = $6 ... WHERE id = $7
+        // If no receipt: ... WHERE id = $6
+
+        let finalQuery = "";
+        let finalValues = [];
+
+        if (req.file) {
+            finalQuery = `UPDATE student_fees SET month=$1, year=$2, amount=$3, status=$4, paid_date=$5, receipt_url=$6 WHERE id=$7 RETURNING *`;
+            finalValues = [month, year, amount, status, date || null, `/uploads/${req.file.filename}`, feeId];
+        } else {
+            finalQuery = `UPDATE student_fees SET month=$1, year=$2, amount=$3, status=$4, paid_date=$5 WHERE id=$6 RETURNING *`;
+            finalValues = [month, year, amount, status, date || null, feeId];
+        }
+
+        const result = await query(finalQuery, finalValues);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Fee record not found' });
+        }
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error("Error updating fee:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// 4. DELETE: Fee
+router.delete('/:id/fees/:feeId', async (req, res) => {
+    try {
+        const { feeId } = req.params;
+        const result = await query('DELETE FROM student_fees WHERE id = $1 RETURNING *', [feeId]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Fee record not found' });
+        }
+
+        res.json({ message: 'Fee payment cancelled successfully' });
+    } catch (err) {
+        console.error("Error deleting fee:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// 5. PUT: Update Monthly Fee
+router.put('/:id/monthly-fee', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { monthlyFee } = req.body;
+
+        const result = await query(
+            'UPDATE students SET monthly_fee = $1 WHERE id = $2 RETURNING monthly_fee',
+            [monthlyFee, id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Student not found' });
+        }
+
+        res.json({ message: 'Monthly fee updated', monthlyFee: result.rows[0].monthly_fee });
+    } catch (err) {
+        console.error("Error updating monthly fee:", err);
+        res.status(500).json({ message: 'Server Error' });
     }
 });
 

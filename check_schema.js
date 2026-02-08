@@ -1,27 +1,24 @@
-import { query } from './db.js';
+const { pool } = require('./db');
 
-async function test() {
+async function checkSchema() {
     try {
-        const res = await query('SELECT column_name FROM information_schema.columns WHERE table_name = \'programs\' AND column_name = \'duration\'');
-        if (res.rows.length > 0) {
-            console.log("SUCCESS: Column 'duration' exists.");
-        } else {
-            console.log("FAILURE: Column 'duration' does NOT exist.");
-        }
+        console.log("Checking 'exams' table columns...");
+        const res = await pool.query(`
+            SELECT column_name, data_type 
+            FROM information_schema.columns 
+            WHERE table_name = 'exams';
+        `);
+        console.table(res.rows);
 
-        const res2 = await query('SELECT column_name FROM information_schema.columns WHERE table_name = \'programs\' AND column_name = \'fees\'');
-        if (res2.rows.length > 0) {
-            console.log("SUCCESS: Column 'fees' exists.");
-        }
+        console.log("\nChecking last 5 exams...");
+        const exams = await pool.query('SELECT id, title, slot_id FROM exams ORDER BY id DESC LIMIT 5');
+        console.table(exams.rows);
 
-        const res3 = await query('SELECT column_name FROM information_schema.columns WHERE table_name = \'programs\' AND column_name = \'status\'');
-        if (res3.rows.length > 0) {
-            console.log("SUCCESS: Column 'status' exists.");
-        }
-
-    } catch (e) {
-        console.error("Error:", e);
+    } catch (err) {
+        console.error(err);
+    } finally {
+        pool.end();
     }
-    process.exit(0);
 }
-test();
+
+checkSchema();

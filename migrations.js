@@ -35,6 +35,7 @@ const runMigrations = async () => {
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS last_studied_grade VARCHAR(50);",
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS previous_college VARCHAR(150);",
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS whatsapp VARCHAR(20);",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS monthly_fee DECIMAL(10, 2) DEFAULT 0;",
 
         // Teachers Table Updates
         "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS department VARCHAR(100);",
@@ -74,6 +75,27 @@ const runMigrations = async () => {
             name VARCHAR(255) NOT NULL,
             file_url TEXT NOT NULL,
             file_size VARCHAR(50),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );`,
+
+        `CREATE TABLE IF NOT EXISTS student_documents (
+            id SERIAL PRIMARY KEY,
+            student_id VARCHAR(20) REFERENCES students(id),
+            name VARCHAR(255) NOT NULL,
+            file_url TEXT NOT NULL,
+            file_size VARCHAR(50),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );`,
+
+        `CREATE TABLE IF NOT EXISTS student_fees (
+            id SERIAL PRIMARY KEY,
+            student_id VARCHAR(20) REFERENCES students(id),
+            month VARCHAR(20) NOT NULL,
+            year VARCHAR(10) NOT NULL,
+            amount DECIMAL(10, 2) NOT NULL,
+            status VARCHAR(20) DEFAULT 'Pending', -- Paid, Pending
+            paid_date DATE,
+            receipt_url TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );`,
 

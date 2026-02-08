@@ -4,27 +4,87 @@ const db = require('../db');
 
 router.get('/', async (req, res) => {
     try {
-        // 1. மொத்த மாணவர்கள் (Total Students)
-        const studentCount = await db.query("SELECT COUNT(*) FROM students WHERE status = 'Active'");
+        // 0. Get Today's Date (UTC to match Frontend default)
+        const todayStr = new Date().toISOString().split('T')[0];
 
-        // 2. மொத்த ஆசிரியர்கள் (Total Teachers)
-        const teacherCount = await db.query("SELECT COUNT(*) FROM teachers WHERE status = 'Active'");
+        // 1. Total Students (Active Enrolled)
+        // We use this as the denominator
+        const studentStats = await db.query(
+            "SELECT COUNT(*) as total FROM students WHERE status = 'Active'"
+        );
+        const totalStudents = parseInt(studentStats.rows[0].total) || 0;
 
-        // 3. மொத்த பாடங்கள் (Total Subjects)
-        const subjectCount = await db.query("SELECT COUNT(*) FROM subjects");
+        // 2. Active Students -> Present Students Today
+        // We count how many marked 'Present' for today AND are currently Active
+        const presentStudentsReq = await db.query(
+            `SELECT COUNT(sa.*) as present 
+             FROM student_attendance sa 
+             JOIN students s ON sa.student_id = s.id 
+             WHERE sa.date = $1 AND sa.status = 'Present' AND s.status = 'Active'`,
+            [todayStr]
+        );
+        const activeStudents = parseInt(presentStudentsReq.rows[0].present) || 0;
 
-        // 4. சமீபத்திய நிகழ்வுகள் (Recent Activities - Example: Last 5 added students)
-        const recentActivities = await db.query("SELECT name, created_at FROM students ORDER BY created_at DESC LIMIT 5");
+        // 3. Total Teachers (Active Enrolled)
+        const teacherStats = await db.query(
+            "SELECT COUNT(*) as total FROM teachers WHERE status = 'Active'"
+        );
+        const totalTeachers = parseInt(teacherStats.rows[0].total) || 0;
 
+        // 4. Active Teachers -> Present Teachers Today
+        const presentTeachersReq = await db.query(
+            `SELECT COUNT(ta.*) as present 
+             FROM teacher_attendance ta 
+             JOIN teachers t ON ta.teacher_id = t.id 
+             WHERE ta.date = $1 AND ta.status = 'Present' AND t.status = 'Active'`,
+            [todayStr]
+        );
+        const activeTeachers = parseInt(presentTeachersReq.rows[0].present) || 0;
+
+        // 3. Documents
+        const documentCount = await db.query("SELECT COUNT(*) FROM documents");
+        const totalDocuments = parseInt(documentCount.rows[0].count) || 0;
+
+        // Calculate Percentages
+        const studentAttendance = totalStudents > 0 ? Math.round((activeStudents / totalStudents) * 100) + '%' : '0%';
+        const teacherAttendance = totalTeachers > 0 ? Math.round((activeTeachers / totalTeachers) * 100) + '%' : '0%';
+
+        // 4. Recent Activities (combining newly added students and teachers)
+        // We will fetch last 3 students and last 2 teachers to make a mix
+        const recentStudents = await db.query("SELECT 'New Student' as title, name || ' joined' as description, 'UserPlus' as icon_type, created_at FROM students ORDER BY created_at DESC LIMIT 3");
+        // Note: teachers table might not have created_at in some schemas, if not we skip
+        // Checking schema.sql earlier: teachers table doesn't have created_at explicitly shown in the CREATE TABLE snippet? 
+        // Wait, let's check schema.sql again or just stick to students for now to be safe, or check column.
+        // Step 53 schema.sql for teachers: 
+        // id, emp_id, name, ... joining_date DATE ...
+        // It does NOT have created_at. It has joining_date.
+        // So I will use joining_date for teachers.
+
+        const recentTeachers = await db.query("SELECT 'New Teacher' as title, name || ' joined' as description, 'User' as icon_type, joining_date as created_at FROM teachers ORDER BY joining_date DESC LIMIT 2");
+
+        let activities = [...recentStudents.rows, ...recentTeachers.rows];
+        // Sort combined
+        activities.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        activities = activities.slice(0, 5); // Take top 5
+
+        // Response structure matching Frontend
         res.json({
-            totalStudents: parseInt(studentCount.rows[0].count),
-            totalTeachers: parseInt(teacherCount.rows[0].count),
-            totalSubjects: parseInt(subjectCount.rows[0].count),
-            recentActivities: recentActivities.rows
+            stats: {
+                students: totalStudents,
+                teachers: totalTeachers,
+                documents: totalDocuments,
+                programs: 0, // Placeholder if needed or add query
+                studentAttendance: studentAttendance,
+                teacherAttendance: teacherAttendance,
+                activeStudents: activeStudents,
+                activeTeachers: activeTeachers
+            },
+            activities: activities,
+            alerts: [] // Future: Link to alerts table
         });
 
     } catch (err) {
-        console.error(err);
+        console.error("Dashboard Error:", err);
         res.status(500).json({ message: "Server Error" });
     }
 });
