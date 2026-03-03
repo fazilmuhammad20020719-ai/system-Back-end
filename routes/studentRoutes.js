@@ -292,11 +292,21 @@ router.get('/:id/attendance', async (req, res) => {
 router.delete('/:id', async (req, res) => {
     try {
         const { id } = req.params;
+
+        // 1. Delete all related records first to avoid Foreign Key constraint violations
+        await query('DELETE FROM attendance WHERE student_id = $1', [id]);
+        await query('DELETE FROM student_attendance WHERE student_id = $1', [id]);
+        await query('DELETE FROM student_documents WHERE student_id = $1', [id]);
+        await query('DELETE FROM student_fees WHERE student_id = $1', [id]);
+        await query('DELETE FROM student_enrollments WHERE student_id = $1', [id]);
+
+        // 2. Finally, delete the student
         await query('DELETE FROM students WHERE id = $1', [id]);
+
         res.json({ message: 'Student deleted successfully' });
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Server error' });
+        console.error("Error during deletion:", err);
+        res.status(500).json({ message: 'Server error during deletion' });
     }
 });
 

@@ -88,7 +88,13 @@ router.delete('/:id', async (req, res) => {
         // 4. Delete Schedules (Since schedules are strictly bound to a program time)
         await client.query('DELETE FROM schedules WHERE program_id = $1', [id]);
 
-        // 5. Delete the Program
+        // 5. Delete Exams linked to this program
+        await client.query('DELETE FROM exams WHERE program_id = $1', [id]);
+
+        // 6. Delete Student Enrollments for this program
+        await client.query('DELETE FROM student_enrollments WHERE program_id = $1', [id]);
+
+        // 7. Delete the Program
         await client.query('DELETE FROM programs WHERE id = $1', [id]);
 
         await client.query('COMMIT');

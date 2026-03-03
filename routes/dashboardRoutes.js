@@ -49,23 +49,29 @@ router.get('/', async (req, res) => {
         const studentAttendance = totalStudents > 0 ? Math.round((activeStudents / totalStudents) * 100) + '%' : '0%';
         const teacherAttendance = totalTeachers > 0 ? Math.round((activeTeachers / totalTeachers) * 100) + '%' : '0%';
 
-        // 4. Recent Activities (combining newly added students and teachers)
-        // We will fetch last 3 students and last 2 teachers to make a mix
-        const recentStudents = await db.query("SELECT 'New Student' as title, name || ' joined' as description, 'UserPlus' as icon_type, created_at FROM students ORDER BY created_at DESC LIMIT 3");
-        // Note: teachers table might not have created_at in some schemas, if not we skip
-        // Checking schema.sql earlier: teachers table doesn't have created_at explicitly shown in the CREATE TABLE snippet? 
-        // Wait, let's check schema.sql again or just stick to students for now to be safe, or check column.
-        // Step 53 schema.sql for teachers: 
-        // id, emp_id, name, ... joining_date DATE ...
-        // It does NOT have created_at. It has joining_date.
-        // So I will use joining_date for teachers.
+        // 4. Recent Activities - Last 24 hours only, max 10
+        const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-        const recentTeachers = await db.query("SELECT 'New Teacher' as title, name || ' joined' as description, 'User' as icon_type, joining_date as created_at FROM teachers ORDER BY joining_date DESC LIMIT 2");
+        const recentStudents = await db.query(
+            `SELECT 'New Student' as title, name || ' joined' as description, 'UserPlus' as icon_type, created_at
+             FROM students
+             WHERE created_at >= $1
+             ORDER BY created_at DESC LIMIT 10`,
+            [since24h]
+        );
+
+        const recentTeachers = await db.query(
+            `SELECT 'New Teacher' as title, name || ' joined' as description, 'User' as icon_type, joining_date as created_at
+             FROM teachers
+             WHERE joining_date >= $1
+             ORDER BY joining_date DESC LIMIT 10`,
+            [since24h]
+        );
 
         let activities = [...recentStudents.rows, ...recentTeachers.rows];
-        // Sort combined
+        // Sort combined by most recent first
         activities.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-        activities = activities.slice(0, 5); // Take top 5
+        activities = activities.slice(0, 10); // Take top 10
 
         // Response structure matching Frontend
         res.json({
