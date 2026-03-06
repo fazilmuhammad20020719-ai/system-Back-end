@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { logActivity } = require('../utils/activityLogger');
 
 // 1. GET ALL EXAMS (With Filtering & Parts)
 router.get('/', async (req, res) => {
@@ -157,6 +158,15 @@ router.post('/', async (req, res) => {
         }
 
         await client.query('COMMIT');
+
+        // Log exam creation
+        await logActivity(
+            `New exam timetable created`,
+            `Exam "${title}" was created and scheduled in the system.`,
+            'Calendar',
+            pId || null
+        );
+
         res.json({ message: "Exam created successfully", examId });
 
     } catch (err) {
@@ -267,6 +277,19 @@ router.post('/:id/results', async (req, res) => {
         if (status) {
             await db.query(`UPDATE exams SET status = $1 WHERE id = $2`, [status, req.params.id]);
         }
+
+        if (status === 'Published' || status === 'Completed') {
+            const examInfo = await db.query('SELECT title, program_id FROM exams WHERE id = $1', [req.params.id]);
+            const examTitle = examInfo.rows[0]?.title || `Exam #${req.params.id}`;
+            const examProgId = examInfo.rows[0]?.program_id || null;
+            await logActivity(
+                `Exam results published`,
+                `Marks and results for exam "${examTitle}" have been published.`,
+                'FileText',
+                examProgId
+            );
+        }
+
         res.json({ message: "Saved" });
     } catch (err) {
         console.error(err);

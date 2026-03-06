@@ -49,6 +49,12 @@ const runMigrations = async () => {
         // PROGRAMS Category
         "ALTER TABLE programs ADD COLUMN IF NOT EXISTS category VARCHAR(50);",
 
+        // Activities Program Gate
+        "ALTER TABLE activities ADD COLUMN IF NOT EXISTS program_id INTEGER REFERENCES programs(id) ON DELETE CASCADE;",
+
+        // Users - full name
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR(100);",
+
         // TEACHERS Category & Assigned Programs
         "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS teacher_category VARCHAR(50);",
         "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS assigned_programs TEXT;",
@@ -280,6 +286,19 @@ const runMigrations = async () => {
             status VARCHAR(20), -- Present, Absent, Holiday, Late, Leave
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT unique_teacher_attendance UNIQUE (teacher_id, date)
+        );`,
+
+        // --- STUDENT NOTES TABLE ---
+        `CREATE TABLE IF NOT EXISTS student_notes (
+            id SERIAL PRIMARY KEY,
+            student_id VARCHAR(20) REFERENCES students(id) ON DELETE CASCADE,
+            note_type VARCHAR(20) DEFAULT 'General', -- Good, Bad, General, Achievement, Warning
+            text TEXT NOT NULL,
+            photo_url TEXT,
+            is_pinned BOOLEAN DEFAULT FALSE,
+            author VARCHAR(100) DEFAULT 'Admin',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );`
     ];
 

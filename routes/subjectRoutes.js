@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { query } = require('../db');
+const { logActivity } = require('../utils/activityLogger');
 
 // GET All Subjects
 // GET Subjects (Optional Filter by Program)
@@ -33,6 +34,14 @@ router.post('/', async (req, res) => {
             'INSERT INTO subjects (name, program_id, year, teacher_id) VALUES ($1, $2, $3, $4) RETURNING *',
             [name, programId, year, teacherId || null]
         );
+
+        await logActivity(
+            `New subject added`,
+            `Subject "${name}" was added to the system.`,
+            'BookOpen',
+            programId || null
+        );
+
         res.status(201).json(result.rows[0]);
     } catch (err) {
         console.error(err);

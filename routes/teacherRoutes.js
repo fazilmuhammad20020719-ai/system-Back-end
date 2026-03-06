@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { query } = require('../db');
 const { teacherUpload, documentUpload } = require('../middleware/uploadMiddleware');
+const { logActivity } = require('../utils/activityLogger');
 
 // 1. GET ALL TEACHERS
 router.get('/', async (req, res) => {
@@ -223,6 +224,14 @@ router.post('/', teacherUpload, async (req, res) => {
         ];
 
         const result = await query(queryText, values);
+
+        await logActivity(
+            `New teacher added`,
+            `Teacher ${name} (${empId}) was added to the system.`,
+            'UserPlus',
+            programId || null
+        );
+
         res.status(201).json(result.rows[0]);
 
     } catch (err) {
@@ -311,6 +320,14 @@ router.put('/:id', teacherUpload, async (req, res) => {
         if (result.rows.length === 0) {
             return res.status(404).json({ message: 'Teacher not found' });
         }
+
+        await logActivity(
+            `Teacher profile updated`,
+            `Teacher ${result.rows[0].name} (ID: ${id}) profile was updated.`,
+            'Edit',
+            result.rows[0].program_id || null
+        );
+
         res.json(result.rows[0]);
 
     } catch (err) {
@@ -328,6 +345,13 @@ router.delete('/:id', async (req, res) => {
         if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Teacher not found' });
         }
+        const deletedTeacher = result.rows[0];
+        await logActivity(
+            `Teacher deleted`,
+            `Teacher ${deletedTeacher.name} (${deletedTeacher.emp_id}) was removed from the system.`,
+            'Trash2',
+            deletedTeacher.program_id || null
+        );
         // Optionally delete files from filesystem here using fs.unlink
         res.json({ message: 'Teacher deleted successfully' });
     } catch (err) {
@@ -374,6 +398,12 @@ router.post('/:id/documents', documentUpload, async (req, res) => {
         const result = await query(
             'INSERT INTO teacher_documents (teacher_id, name, file_url, file_size) VALUES ($1, $2, $3, $4) RETURNING *',
             [id, name || req.file.originalname, fileUrl, fileSize]
+        );
+
+        await logActivity(
+            `Teacher document uploaded`,
+            `Document "${name || req.file.originalname}" uploaded for teacher ID ${id}.`,
+            'Upload'
         );
 
         res.status(201).json(result.rows[0]);
@@ -427,6 +457,12 @@ router.delete('/:id/documents/:docId', async (req, res) => {
         if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
         }
+
+        await logActivity(
+            `Teacher document deleted`,
+            `Document ID ${docId} was deleted from the system.`,
+            'Trash2'
+        );
 
         res.json({ message: 'Document deleted successfully' });
     } catch (err) {

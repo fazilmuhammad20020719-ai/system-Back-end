@@ -4,6 +4,7 @@ const { query } = require('../db');
 const { studentUpload, documentUpload } = require('../middleware/uploadMiddleware');
 const path = require('path');
 const fs = require('fs');
+const { logActivity } = require('../utils/activityLogger');
 
 // --- 1. SAVE STUDENT (ADD or EDIT) ---
 router.post('/', studentUpload, async (req, res) => {
@@ -102,19 +103,22 @@ router.post('/', studentUpload, async (req, res) => {
             monthly_fee = $41
         `;
 
+        // Helper: convert undefined (not sent by frontend) to null for PostgreSQL
+        const nn = (v) => (v === undefined || v === '' ? null : v);
+
         const values = [
-            indexNumber, fullName, programId, currentYear, session, status || 'Active', phone,
-            dob || null, gender, nic, email, photoUrl,
-            address, city, district, province,
-            guardianName, guardianRelation, guardianOccupation, guardianPhone,
-            admissionDate || null, previousSchoolName, mediumOfStudy,
+            indexNumber, fullName, programId, nn(currentYear), nn(session), status || 'Active', nn(phone),
+            nn(dob), nn(gender), nn(nic), nn(email), photoUrl,
+            nn(address), nn(city), nn(district), nn(province),
+            nn(guardianName), nn(guardianRelation), nn(guardianOccupation), nn(guardianPhone),
+            nn(admissionDate), nn(previousSchoolName), nn(mediumOfStudy),
             nicFront, nicBack, studentSignature, birthCertificate, medicalReport,
             guardianNic, guardianPhoto, leavingCertificate,
-            googleMapLink || null,
-            latitude || null,
-            longitude || null,
-            dsDivision || null, gnDivision || null, guardianEmail || null,
-            lastStudiedGrade || null, previousCollegeName || null, whatsapp || null, monthlyFee || 5000
+            nn(googleMapLink),
+            nn(latitude),
+            nn(longitude),
+            nn(dsDivision), nn(gnDivision), nn(guardianEmail),
+            nn(lastStudiedGrade), nn(previousCollegeName), nn(whatsapp), monthlyFee || 5000
         ];
 
         await query(queryText, values);
@@ -122,18 +126,22 @@ router.post('/', studentUpload, async (req, res) => {
         // --- Handle Multi-Enrollments ---
         // Expecting req.body.enrollments as JSON string or array
         let enrollments = [];
+        let enrollmentsParsed = false;
         if (req.body.enrollments) {
             try {
                 enrollments = typeof req.body.enrollments === 'string'
                     ? JSON.parse(req.body.enrollments)
                     : req.body.enrollments;
+                enrollmentsParsed = true;
             } catch (e) {
-                console.error("Error parsing enrollments:", e);
+                // Parsing failed — warn and keep empty so fallback can run
+                console.warn("Warning: enrollments JSON parse failed. Raw value:", req.body.enrollments, "Error:", e.message);
             }
         }
 
-        // Fallback: If no explicit enrollments but legacy fields exist, create one enrollment
-        if (enrollments.length === 0 && programId) {
+        // Fallback: If enrollments were not successfully parsed OR are empty,
+        // and legacy fields exist, build one enrollment from them to avoid data loss
+        if ((!enrollmentsParsed || enrollments.length === 0) && programId) {
             enrollments.push({
                 programId: programId,
                 currentYear: currentYear || '',
@@ -167,6 +175,17 @@ router.post('/', studentUpload, async (req, res) => {
                 ]);
             }
         }
+
+        // Check if this was an INSERT or UPDATE (check if student existed before)
+        const isNew = !(await query('SELECT id FROM students WHERE id = $1', [indexNumber])).rows.length === 0;
+        // We always do upsert, so check by looking at name existing. Simplest: log based on body presence.
+        // Log activity
+        await logActivity(
+            `Student ${fullName} profile saved`,
+            `Student [${indexNumber}] ${fullName} was registered or updated in the system.`,
+            'UserPlus',
+            programId || null
+        );
 
         res.status(201).json({ message: 'Student details saved successfully' });
 
@@ -300,8 +319,18 @@ router.delete('/:id', async (req, res) => {
         await query('DELETE FROM student_fees WHERE student_id = $1', [id]);
         await query('DELETE FROM student_enrollments WHERE student_id = $1', [id]);
 
+        // Fetch student name before deleting
+        const studentInfo = await query('SELECT name FROM students WHERE id = $1', [id]);
+        const studentName = studentInfo.rows[0]?.name || id;
+
         // 2. Finally, delete the student
         await query('DELETE FROM students WHERE id = $1', [id]);
+
+        await logActivity(
+            `Student deleted`,
+            `Student [${id}] ${studentName} was removed from the system.`,
+            'Trash2'
+        );
 
         res.json({ message: 'Student deleted successfully' });
     } catch (err) {
@@ -348,6 +377,12 @@ router.post('/:id/documents', documentUpload, async (req, res) => {
         const result = await query(
             'INSERT INTO student_documents (student_id, name, file_url, file_size) VALUES ($1, $2, $3, $4) RETURNING *',
             [id, name || req.file.originalname, fileUrl, fileSize]
+        );
+
+        await logActivity(
+            `Document uploaded for student`,
+            `Document "${name || req.file.originalname}" uploaded for student ID ${id}.`,
+            'Upload'
         );
 
         res.status(201).json(result.rows[0]);
@@ -402,6 +437,12 @@ router.delete('/:id/documents/:docId', async (req, res) => {
             fs.unlinkSync(filePath);
         }
 
+        await logActivity(
+            `Student document deleted`,
+            `Document ID ${docId} was deleted from the system.`,
+            'Trash2'
+        );
+
         res.json({ message: 'Document deleted successfully' });
     } catch (err) {
         console.error("Error deleting document:", err);
@@ -445,6 +486,14 @@ router.post('/:id/fees', documentUpload, async (req, res) => {
              VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
             [id, month, year, amount, status || 'Pending', date || null, receiptUrl]
         );
+
+        if (status === 'Paid') {
+            await logActivity(
+                `Fee payment recorded`,
+                `Student ID ${id} paid fees for ${month} ${year}. Amount: ${amount}.`,
+                'DollarSign'
+            );
+        }
 
         res.status(201).json(result.rows[0]);
     } catch (err) {

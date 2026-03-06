@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { logActivity } = require('../utils/activityLogger');
 
 // 1. GET ALL PROGRAMS
 router.get('/', async (req, res) => {
@@ -21,6 +22,14 @@ router.post('/', async (req, res) => {
             'INSERT INTO programs (name, type, duration, fees) VALUES ($1, $2, $3, $4) RETURNING *',
             [name, type, duration, fee]
         );
+
+        await logActivity(
+            `New program added`,
+            `Program "${name}" (${type}) was created in the system.`,
+            'BookOpen',
+            result.rows[0].id
+        );
+
         res.status(201).json(result.rows[0]);
     } catch (err) {
         console.error(err);
@@ -71,6 +80,10 @@ router.delete('/:id', async (req, res) => {
     try {
         const { id } = req.params;
 
+        // Fetch program name BEFORE any deletion
+        const progInfo = await db.query('SELECT name FROM programs WHERE id = $1', [id]);
+        const programName = progInfo.rows[0]?.name || `Program #${id}`;
+
         await client.query('BEGIN');
 
         // 1. Clear Program ID from Students
@@ -98,6 +111,12 @@ router.delete('/:id', async (req, res) => {
         await client.query('DELETE FROM programs WHERE id = $1', [id]);
 
         await client.query('COMMIT');
+
+        await logActivity(
+            `Program deleted`,
+            `Program "${programName}" was removed from the system along with its related data.`,
+            'Trash2'
+        );
 
         res.json({ message: 'Program deleted successfully' });
     } catch (err) {

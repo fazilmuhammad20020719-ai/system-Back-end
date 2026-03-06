@@ -49,29 +49,19 @@ router.get('/', async (req, res) => {
         const studentAttendance = totalStudents > 0 ? Math.round((activeStudents / totalStudents) * 100) + '%' : '0%';
         const teacherAttendance = totalTeachers > 0 ? Math.round((activeTeachers / totalTeachers) * 100) + '%' : '0%';
 
-        // 4. Recent Activities - Last 24 hours only, max 10
+        // 4. Recent Activities - from the activities table, last 24 hours, max 10
         const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-        const recentStudents = await db.query(
-            `SELECT 'New Student' as title, name || ' joined' as description, 'UserPlus' as icon_type, created_at
-             FROM students
+        const recentActivitiesRes = await db.query(
+            `SELECT id, title, description, icon_type, created_at
+             FROM activities
              WHERE created_at >= $1
-             ORDER BY created_at DESC LIMIT 10`,
+             ORDER BY created_at DESC
+             LIMIT 10`,
             [since24h]
         );
 
-        const recentTeachers = await db.query(
-            `SELECT 'New Teacher' as title, name || ' joined' as description, 'User' as icon_type, joining_date as created_at
-             FROM teachers
-             WHERE joining_date >= $1
-             ORDER BY joining_date DESC LIMIT 10`,
-            [since24h]
-        );
-
-        let activities = [...recentStudents.rows, ...recentTeachers.rows];
-        // Sort combined by most recent first
-        activities.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-        activities = activities.slice(0, 10); // Take top 10
+        let activities = recentActivitiesRes.rows;
 
         // Response structure matching Frontend
         res.json({
