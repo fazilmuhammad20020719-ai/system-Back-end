@@ -4,8 +4,8 @@ const db = require('../db');
 
 router.get('/', async (req, res) => {
     try {
-        // 0. Get Today's Date (UTC to match Frontend default)
-        const todayStr = new Date().toISOString().split('T')[0];
+        // 0. Get Today's Date (Local time - Sri Lanka to avoid timezone bugs after midnight)
+        const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
 
         // 1. Total Students (Active Enrolled)
         // We use this as the denominator

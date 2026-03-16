@@ -75,6 +75,7 @@ const subjectRoutes = require('./routes/subjectRoutes');
 const attendanceRoutes = require('./routes/attendanceRoutes');
 const scheduleRoutes = require('./routes/scheduleRoutes');
 const examRoutes = require('./routes/examRoutes');
+const hifzRoutes = require('./routes/hifzRoutes');
 
 
 const app = express();
@@ -126,6 +127,7 @@ app.use('/api/dashboard', require('./routes/dashboardRoutes')); // Dynamic Dashb
 app.use('/api/exams', examRoutes);
 app.use('/api/activities', require('./routes/activityRoutes'));
 app.use('/api/controller', require('./routes/controllerRoutes'));
+app.use('/api/hifz', hifzRoutes);
 
 // --- UTILITY: Clear All Teacher Assigned Programs ---
 app.get('/api/utility/clear-teacher-programs', async (req, res) => {

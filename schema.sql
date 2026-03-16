@@ -143,3 +143,13 @@ CREATE TABLE IF NOT EXISTS examination_slots (
     status VARCHAR(50) DEFAULT 'Upcoming',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Hifz Tracker Table
+CREATE TABLE IF NOT EXISTS hifz_tracker (
+    id SERIAL PRIMARY KEY,
+    student_id VARCHAR(20) REFERENCES students(id) ON DELETE CASCADE,
+    current_juz INTEGER,
+    current_surah VARCHAR(150),
+    assigned_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_hifz_student UNIQUE (student_id)
+);

@@ -28,7 +28,10 @@ const storage = multer.diskStorage({
     }
 });
 
-const upload = multer({ storage: storage });
+const upload = multer({
+    storage: storage,
+    limits: { fileSize: 50 * 1024 * 1024 } // 50 MB — matches the Express body limit in server.js
+});
 
 // Student File Fields
 const studentUpload = upload.fields([
@@ -58,8 +61,12 @@ const teacherUpload = upload.fields([
 // Generic Document Upload
 const documentUpload = upload.single('document');
 
+// Note Photo Upload (for student notes)
+const noteUpload = upload.single('file');
+
 module.exports = {
     studentUpload,
     teacherUpload,
-    documentUpload
+    documentUpload,
+    noteUpload
 };

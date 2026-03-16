@@ -36,6 +36,7 @@ const runMigrations = async () => {
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS previous_college VARCHAR(150);",
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS whatsapp VARCHAR(20);",
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS monthly_fee DECIMAL(10, 2) DEFAULT 0;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS father_name VARCHAR(150);",
 
         // Teachers Table Updates
         "ALTER TABLE teachers ADD COLUMN IF NOT EXISTS department VARCHAR(100);",
@@ -299,6 +300,16 @@ const runMigrations = async () => {
             author VARCHAR(100) DEFAULT 'Admin',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );`,
+
+        // --- HIFZ TRACKER TABLE ---
+        `CREATE TABLE IF NOT EXISTS hifz_tracker (
+            id SERIAL PRIMARY KEY,
+            student_id VARCHAR(20) REFERENCES students(id) ON DELETE CASCADE,
+            current_juz INTEGER,
+            current_surah VARCHAR(150),
+            assigned_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT unique_hifz_student UNIQUE (student_id)
         );`
     ];
 

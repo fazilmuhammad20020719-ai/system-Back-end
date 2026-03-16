@@ -10,12 +10,12 @@ const { logActivity } = require('../utils/activityLogger');
 router.post('/', studentUpload, async (req, res) => {
     try {
         const {
-            indexNumber, firstName, lastName, program, programId: bodyProgramId, session, currentYear, status,
+            indexNumber, firstName, lastName, fatherName, program, programId: bodyProgramId, session, currentYear, status,
             dob, gender, nic, email, phone,
             address, city, district, province, dsDivision, gnDivision,
             guardianName, guardianRelation, guardianOccupation, guardianPhone, guardianEmail,
-            admissionDate, previousSchoolName, mediumOfStudy, lastStudiedGrade, previousCollegeName,
-
+            admissionDate, previousSchoolName, previousSchoolLocation, reasonForLeaving,
+            mediumOfStudy, lastStudiedGrade, previousCollegeName, previousCollegeLocation, reasonForLeavingMadrasa,
             googleMapLink, latitude, longitude, whatsapp, monthlyFee
         } = req.body;
 
@@ -57,68 +57,69 @@ router.post('/', studentUpload, async (req, res) => {
 
         const queryText = `
             INSERT INTO students (
-                id, name, program_id, current_year, session_year, status, contact_number,
+                id, name, father_name, program_id, current_year, session_year, status, contact_number,
                 dob, gender, nic, email, photo_url,
                 address, city, district, province,
                 guardian_name, guardian_relation, guardian_occupation, guardian_phone,
-                admission_date, previous_school, medium_of_study,
-                nic_front, nic_back, student_signature, birth_certificate, medical_report, 
+                admission_date, previous_school, previous_school_location, reason_for_leaving,
+                medium_of_study, last_studied_grade, previous_college, previous_college_location, reason_for_leaving_madrasa,
+                nic_front, nic_back, student_signature, birth_certificate, medical_report,
                 guardian_nic, guardian_photo, leaving_certificate,
                 google_map_link, latitude, longitude,
-                    ds_division, gn_division, guardian_email, last_studied_grade, previous_college, whatsapp, monthly_fee
+                ds_division, gn_division, guardian_email, whatsapp, monthly_fee
             )
             VALUES (
-                $1, $2, $3, $4, $5, $6, $7,
-                $8, $9, $10, $11, $12,
-                $13, $14, $15, $16,
-                $17, $18, $19, $20,
-                $21, $22, $23,
-                $24, $25, $26, $27, $28, $29, $30, $31,
-                $32, $33, $34, $35, $36, $37, $38, $39, $40, $41
+                $1, $2, $3, $4, $5, $6, $7, $8,
+                $9, $10, $11, $12, $13,
+                $14, $15, $16, $17,
+                $18, $19, $20, $21,
+                $22, $23, $24, $25, $26,
+                $27, $28, $29, $30, $31,
+                $32, $33, $34, $35, $36,
+                $37, $38, $39, $40, $41, $42, $43, $44, $45, $46
             )
             ON CONFLICT(id) DO UPDATE SET
-            name = $2, program_id = $3, current_year = $4, session_year = $5, status = $6, contact_number = $7,
-            dob = $8, gender = $9, nic = $10, email = $11,
-            photo_url = COALESCE($12, students.photo_url),
-            address = $13, city = $14, district = $15, province = $16,
-            guardian_name = $17, guardian_relation = $18, guardian_occupation = $19, guardian_phone = $20,
-            admission_date = $21, previous_school = $22, medium_of_study = $23,
-            nic_front = COALESCE($24, students.nic_front),
-            nic_back = COALESCE($25, students.nic_back),
-            student_signature = COALESCE($26, students.student_signature),
-            birth_certificate = COALESCE($27, students.birth_certificate),
-            medical_report = COALESCE($28, students.medical_report),
-            guardian_nic = COALESCE($29, students.guardian_nic),
-            guardian_photo = COALESCE($30, students.guardian_photo),
-            leaving_certificate = COALESCE($31, students.leaving_certificate),
-            google_map_link = $32,
-            latitude = $33,
-            longitude = $34,
-            ds_division = $35,
-            gn_division = $36,
-            guardian_email = $37,
-            last_studied_grade = $38,
-            previous_college = $39,
-            whatsapp = $40,
-            monthly_fee = $41
+            name = $2, father_name = $3, program_id = $4, current_year = $5, session_year = $6, status = $7, contact_number = $8,
+            dob = $9, gender = $10, nic = $11, email = $12,
+            photo_url = COALESCE($13, students.photo_url),
+            address = $14, city = $15, district = $16, province = $17,
+            guardian_name = $18, guardian_relation = $19, guardian_occupation = $20, guardian_phone = $21,
+            admission_date = $22, previous_school = $23, previous_school_location = $24, reason_for_leaving = $25,
+            medium_of_study = $26, last_studied_grade = $27, previous_college = $28,
+            previous_college_location = $29, reason_for_leaving_madrasa = $30,
+            nic_front = COALESCE($31, students.nic_front),
+            nic_back = COALESCE($32, students.nic_back),
+            student_signature = COALESCE($33, students.student_signature),
+            birth_certificate = COALESCE($34, students.birth_certificate),
+            medical_report = COALESCE($35, students.medical_report),
+            guardian_nic = COALESCE($36, students.guardian_nic),
+            guardian_photo = COALESCE($37, students.guardian_photo),
+            leaving_certificate = COALESCE($38, students.leaving_certificate),
+            google_map_link = $39,
+            latitude = $40,
+            longitude = $41,
+            ds_division = $42,
+            gn_division = $43,
+            guardian_email = $44,
+            whatsapp = $45,
+            monthly_fee = $46
         `;
 
         // Helper: convert undefined (not sent by frontend) to null for PostgreSQL
         const nn = (v) => (v === undefined || v === '' ? null : v);
 
         const values = [
-            indexNumber, fullName, programId, nn(currentYear), nn(session), status || 'Active', nn(phone),
+            indexNumber, fullName, nn(fatherName), programId, nn(currentYear), nn(session), status || 'Active', nn(phone),
             nn(dob), nn(gender), nn(nic), nn(email), photoUrl,
             nn(address), nn(city), nn(district), nn(province),
             nn(guardianName), nn(guardianRelation), nn(guardianOccupation), nn(guardianPhone),
-            nn(admissionDate), nn(previousSchoolName), nn(mediumOfStudy),
+            nn(admissionDate), nn(previousSchoolName), nn(previousSchoolLocation), nn(reasonForLeaving),
+            nn(mediumOfStudy), nn(lastStudiedGrade), nn(previousCollegeName), nn(previousCollegeLocation), nn(reasonForLeavingMadrasa),
             nicFront, nicBack, studentSignature, birthCertificate, medicalReport,
             guardianNic, guardianPhoto, leavingCertificate,
-            nn(googleMapLink),
-            nn(latitude),
-            nn(longitude),
+            nn(googleMapLink), nn(latitude), nn(longitude),
             nn(dsDivision), nn(gnDivision), nn(guardianEmail),
-            nn(lastStudiedGrade), nn(previousCollegeName), nn(whatsapp), monthlyFee || 5000
+            nn(whatsapp), monthlyFee || 5000
         ];
 
         await query(queryText, values);
@@ -232,6 +233,21 @@ router.get('/', async (req, res) => {
     }
 });
 
+// Helper: get file size string from a relative path like /uploads/filename.jpg
+const getFileSize = (filePath) => {
+    if (!filePath) return 'N/A';
+    try {
+        const absPath = path.join(__dirname, '..', filePath);
+        const stats = fs.statSync(absPath);
+        const bytes = stats.size;
+        if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+        if (bytes >= 1024) return (bytes / 1024).toFixed(2) + ' KB';
+        return bytes + ' B';
+    } catch (e) {
+        return 'N/A';
+    }
+};
+
 // --- 3. GET SINGLE STUDENT BY ID ---
 router.get('/:id', async (req, res) => {
     try {
@@ -271,6 +287,17 @@ router.get('/:id', async (req, res) => {
         const student = result.rows[0];
         // student.enrollments is now a JSON array from the query
 
+        // Attach file sizes for static document columns
+        const docFields = [
+            'nic_front', 'nic_back', 'student_signature', 'birth_certificate',
+            'medical_report', 'guardian_nic', 'guardian_photo', 'leaving_certificate'
+        ];
+        const fileSizes = {};
+        for (const field of docFields) {
+            fileSizes[field + '_size'] = getFileSize(student[field]);
+        }
+        Object.assign(student, fileSizes);
+
         res.json(student);
     } catch (err) {
         console.error(err);
@@ -285,13 +312,18 @@ router.get('/:id/attendance', async (req, res) => {
         const { id } = req.params;
         const { startDate, endDate } = req.query;
 
-        // Fetch records for this student in the date range from student_attendance table
-        const result = await query(
-            `SELECT date, status 
-             FROM student_attendance 
-             WHERE student_id = $1 AND date >= $2 AND date <= $3`,
-            [id, startDate, endDate]
-        );
+        let queryText = 'SELECT date, status FROM student_attendance WHERE student_id = $1';
+        let queryParams = [id];
+
+        if (startDate && endDate) {
+            queryText += ' AND date >= $2 AND date <= $3';
+            queryParams.push(startDate, endDate);
+        }
+        
+        queryText += ' ORDER BY date DESC';
+
+        // Fetch records for this student from student_attendance table
+        const result = await query(queryText, queryParams);
 
         // Normalize dates to YYYY-MM-DD strings
         // 'en-CA' locale is a reliable way to get YYYY-MM-DD format
@@ -359,7 +391,17 @@ router.get('/:id/documents', async (req, res) => {
 });
 
 // 2. POST: Upload Document
-router.post('/:id/documents', documentUpload, async (req, res) => {
+router.post('/:id/documents', (req, res, next) => {
+    documentUpload(req, res, (err) => {
+        if (err) {
+            if (err.code === 'LIMIT_FILE_SIZE') {
+                return res.status(413).json({ message: 'File is too large. Maximum allowed size is 50MB.' });
+            }
+            return res.status(500).json({ message: 'Upload error: ' + err.message });
+        }
+        next();
+    });
+}, async (req, res) => {
     try {
         const { id } = req.params;
         const { name } = req.body;
