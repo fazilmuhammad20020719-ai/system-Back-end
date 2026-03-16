@@ -2,6 +2,20 @@ const express = require('express');
 const router = express.Router();
 const { query } = require('../db');
 
+// 0. Get All Students (for dropdown)
+// GET /api/hifz/all-students
+router.get('/all-students', async (req, res) => {
+    try {
+        const result = await query(
+            'SELECT id, name FROM students ORDER BY name ASC'
+        );
+        res.status(200).json(result.rows);
+    } catch (error) {
+        console.error('Error fetching students for hifz dropdown:', error);
+        res.status(500).json({ message: 'Internal server error.', error: error.message });
+    }
+});
+
 // 1. Assign API
 // POST /api/hifz/assign
 router.post('/assign', async (req, res) => {
