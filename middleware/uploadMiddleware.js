@@ -20,9 +20,10 @@ const storage = multer.diskStorage({
         // 2. Remove special chars from ID for safety
         const safeId = id.toString().replace(/[^a-zA-Z0-9-_]/g, '');
 
-        // 3. Create filename: "ID-Fieldname.ext"
+        // 3. Create filename: "ID-Fieldname-[timestamp].ext"
         const ext = path.extname(file.originalname);
-        const fixedName = `${safeId}-${file.fieldname}${ext}`;
+        const timestamp = Date.now();
+        const fixedName = `${safeId}-${file.fieldname}-${timestamp}${ext}`;
 
         cb(null, fixedName);
     }
