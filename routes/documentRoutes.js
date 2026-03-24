@@ -6,6 +6,64 @@ const { query } = require('../db');
 const { documentUpload } = require('../middleware/uploadMiddleware');
 const { logActivity } = require('../utils/activityLogger');
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FOLDER ROUTES  (must be defined BEFORE /:id routes to avoid conflicts)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GET /api/documents/folders/all  →  return all folders
+router.get('/folders/all', async (req, res) => {
+    try {
+        const result = await query(
+            "SELECT * FROM document_folders ORDER BY created_at ASC"
+        );
+        res.json(result.rows);
+    } catch (err) {
+        console.error("Error fetching folders:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// POST /api/documents/folders  →  create a new folder
+router.post('/folders', async (req, res) => {
+    try {
+        const { name, parent_id } = req.body;
+        if (!name || !name.trim()) {
+            return res.status(400).json({ message: 'Folder name is required' });
+        }
+
+        // Ensure the folders table exists (idempotent)
+        await query(`
+            CREATE TABLE IF NOT EXISTS document_folders (
+                id   VARCHAR(100) PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                parent_id VARCHAR(100) NOT NULL DEFAULT 'root',
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        `);
+
+        const folderId = `folder_${Date.now()}`;
+        const result = await query(
+            'INSERT INTO document_folders (id, name, parent_id) VALUES ($1, $2, $3) RETURNING *',
+            [folderId, name.trim(), parent_id || 'root']
+        );
+
+        await logActivity(
+            `Folder created`,
+            `Folder "${name.trim()}" was created.`,
+            'Folder'
+        );
+
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        console.error("Error creating folder:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DOCUMENT ROUTES
+// ─────────────────────────────────────────────────────────────────────────────
+
 // 1. GET: All Documents
 router.get('/', async (req, res) => {
     try {
@@ -31,8 +89,7 @@ router.post('/', documentUpload, async (req, res) => {
         const fileSize = sizeInMB < 1
             ? (req.file.size / 1024).toFixed(2) + ' KB'
             : sizeInMB.toFixed(2) + ' MB';
-            
-        // Use provided name or default to original filename
+
         const finalName = name || req.file.originalname;
         const finalCategory = category || 'root';
         const finalType = type || 'unknown';
@@ -55,7 +112,96 @@ router.post('/', documentUpload, async (req, res) => {
     }
 });
 
-// 3. DELETE: Document
+// 3. PUT: Update Document  (rename, move, pin, star, trash, restore)
+router.put('/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const updates = req.body; // e.g. { category: 'folder_xyz' } or { name: 'new name' } etc.
+
+        if (!updates || Object.keys(updates).length === 0) {
+            return res.status(400).json({ message: 'No update fields provided' });
+        }
+
+        // Build a dynamic SET clause
+        const allowedFields = ['name', 'category', 'starred', 'pinned', 'trashed'];
+        const setClauses = [];
+        const values = [];
+        let idx = 1;
+
+        for (const field of allowedFields) {
+            if (field in updates) {
+                setClauses.push(`${field} = $${idx}`);
+                values.push(updates[field]);
+                idx++;
+            }
+        }
+
+        if (setClauses.length === 0) {
+            return res.status(400).json({ message: 'No valid update fields provided' });
+        }
+
+        values.push(id); // last placeholder for WHERE id = $n
+        const sql = `UPDATE documents SET ${setClauses.join(', ')} WHERE id = $${idx} RETURNING *`;
+
+        const result = await query(sql, values);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Document not found' });
+        }
+
+        await logActivity(
+            `Document updated`,
+            `Document ID ${id} was updated: ${JSON.stringify(updates)}.`,
+            'Edit'
+        );
+
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error("Error updating document:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// 4. POST: Copy Document to another folder
+router.post('/:id/copy', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { category } = req.body;
+
+        if (!category) {
+            return res.status(400).json({ message: 'Target folder (category) is required' });
+        }
+
+        // Fetch the original document
+        const original = await query('SELECT * FROM documents WHERE id = $1', [id]);
+
+        if (original.rows.length === 0) {
+            return res.status(404).json({ message: 'Document not found' });
+        }
+
+        const doc = original.rows[0];
+        const copyName = `${doc.name} (Copy)`;
+
+        // Insert a new record pointing to the same file_url but in the new category
+        const result = await query(
+            'INSERT INTO documents (name, file_url, type, size, category) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+            [copyName, doc.file_url, doc.type, doc.size, category]
+        );
+
+        await logActivity(
+            `Document copied`,
+            `Document "${doc.name}" was copied to category "${category}" as "${copyName}".`,
+            'Copy'
+        );
+
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        console.error("Error copying document:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// 5. DELETE: Document
 router.delete('/:id', async (req, res) => {
     try {
         const { id } = req.params;
@@ -68,14 +214,15 @@ router.delete('/:id', async (req, res) => {
 
         const doc = fileResult.rows[0];
 
-        // DB Delete
         await query('DELETE FROM documents WHERE id = $1', [id]);
 
-        // File Delete
-        // Assuming 'uploads' folder is at Back-end/uploads
-        const filePath = path.join(__dirname, '../uploads', path.basename(doc.file_url));
-        if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
+        // Only delete the physical file if no other records share the same URL (i.e. copied files)
+        const sharingCount = await query('SELECT COUNT(*) FROM documents WHERE file_url = $1', [doc.file_url]);
+        if (parseInt(sharingCount.rows[0].count, 10) === 0) {
+            const filePath = path.join(__dirname, '../uploads', path.basename(doc.file_url));
+            if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+            }
         }
 
         await logActivity(

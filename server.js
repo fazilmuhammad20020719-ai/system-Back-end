@@ -128,6 +128,7 @@ app.use('/api/exams', examRoutes);
 app.use('/api/activities', require('./routes/activityRoutes'));
 app.use('/api/controller', require('./routes/controllerRoutes'));
 app.use('/api/hifz', hifzRoutes);
+app.use('/api/documents', require('./routes/documentRoutes'));
 
 // --- UTILITY: Clear All Teacher Assigned Programs ---
 app.get('/api/utility/clear-teacher-programs', async (req, res) => {
