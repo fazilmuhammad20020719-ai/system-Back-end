@@ -11,7 +11,11 @@ router.get('/', async (req, res) => {
                 WHEN CURRENT_DATE < s.start_date THEN 'Upcoming'
                 WHEN CURRENT_DATE >= s.start_date AND CURRENT_DATE <= s.end_date THEN 'Ongoing'
                 ELSE 'Completed'
-            END as status
+            END as status,
+            (SELECT COUNT(id) FROM exams e WHERE e.slot_id = s.id) as total_exams,
+            (SELECT COUNT(id) FROM exams e WHERE e.slot_id = s.id AND (e.status = 'Completed' OR (e.exam_date + e.end_time::time) < CURRENT_TIMESTAMP)) as completed_exams,
+            (SELECT COUNT(id) FROM exams e WHERE e.slot_id = s.id AND e.attendance_taken = true) as attendance_exams,
+            (SELECT COUNT(id) FROM exams e WHERE e.slot_id = s.id AND e.results_submitted = true) as results_exams
             FROM examination_slots s
             LEFT JOIN programs p ON s.program_id = p.id
             ORDER BY s.start_date DESC

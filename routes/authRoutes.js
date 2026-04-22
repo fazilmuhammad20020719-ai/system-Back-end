@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const { query } = require('../db');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const { logActivity } = require('../utils/activityLogger');
 
 // --- LOGIN API ---
@@ -12,7 +12,7 @@ router.post('/login', async (req, res) => {
 
     try {
         const { query } = require('../db');
-        const bcrypt = require('bcrypt');
+        const bcrypt = require('bcryptjs');
 
         // Check user in database
         const result = await query('SELECT * FROM users WHERE username = $1', [username]);

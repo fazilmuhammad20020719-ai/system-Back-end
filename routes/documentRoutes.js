@@ -13,13 +13,23 @@ const { logActivity } = require('../utils/activityLogger');
 // GET /api/documents/folders/all  →  return all folders
 router.get('/folders/all', async (req, res) => {
     try {
+        // Ensure table exists before querying (safe on first run before migrations)
+        await query(`
+            CREATE TABLE IF NOT EXISTS document_folders (
+                id         VARCHAR(100) PRIMARY KEY,
+                name       VARCHAR(255) NOT NULL,
+                parent_id  VARCHAR(100) NOT NULL DEFAULT 'root',
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        `);
         const result = await query(
             "SELECT * FROM document_folders ORDER BY created_at ASC"
         );
         res.json(result.rows);
     } catch (err) {
         console.error("Error fetching folders:", err);
-        res.status(500).json({ message: 'Server Error' });
+        // Return empty array instead of crashing — frontend handles gracefully
+        res.json([]);
     }
 });
 
@@ -56,6 +66,71 @@ router.post('/folders', async (req, res) => {
         res.status(201).json(result.rows[0]);
     } catch (err) {
         console.error("Error creating folder:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// PUT /api/documents/folders/:id  →  rename a folder
+router.put('/folders/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name } = req.body;
+
+        if (!name || !name.trim()) {
+            return res.status(400).json({ message: 'Folder name is required' });
+        }
+
+        const result = await query(
+            'UPDATE document_folders SET name = $1 WHERE id = $2 RETURNING *',
+            [name.trim(), id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Folder not found' });
+        }
+
+        await logActivity(
+            `Folder renamed`,
+            `Folder ID "${id}" was renamed to "${name.trim()}".`,
+            'Edit'
+        );
+
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error("Error renaming folder:", err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// DELETE /api/documents/folders/:id  →  delete folder; files inside move to root
+router.delete('/folders/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const folderResult = await query('SELECT * FROM document_folders WHERE id = $1', [id]);
+        if (folderResult.rows.length === 0) {
+            return res.status(404).json({ message: 'Folder not found' });
+        }
+        const folder = folderResult.rows[0];
+
+        // Move all documents inside this folder back to root
+        await query("UPDATE documents SET category = 'root' WHERE category = $1", [id]);
+
+        // Move all subfolders up to root to prevent orphaning
+        await query("UPDATE document_folders SET parent_id = 'root' WHERE parent_id = $1", [id]);
+
+        // Delete the folder
+        await query('DELETE FROM document_folders WHERE id = $1', [id]);
+
+        await logActivity(
+            `Folder deleted`,
+            `Folder "${folder.name}" was deleted. Its files were moved to root.`,
+            'Trash2'
+        );
+
+        res.json({ message: 'Folder deleted successfully' });
+    } catch (err) {
+        console.error("Error deleting folder:", err);
         res.status(500).json({ message: 'Server Error' });
     }
 });

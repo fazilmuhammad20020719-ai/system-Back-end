@@ -471,4 +471,77 @@ router.delete('/:id/documents/:docId', async (req, res) => {
     }
 });
 
+// ==========================================
+//        TEACHER PAYROLL API ROUTES
+// ==========================================
+
+// GET: all payroll records for a teacher
+router.get('/:id/payroll', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await query(
+            'SELECT * FROM teacher_payroll WHERE teacher_id = $1 ORDER BY year DESC, created_at DESC',
+            [id]
+        );
+        res.json(result.rows);
+    } catch (err) {
+        console.error('Error fetching payroll:', err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// POST: add a payroll record
+router.post('/:id/payroll', documentUpload, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { month, year, basic, bonus, deductions, paid_date, status } = req.body;
+        const receiptUrl = req.file ? `/uploads/${req.file.filename}` : null;
+
+        const result = await query(
+            `INSERT INTO teacher_payroll (teacher_id, month, year, basic, bonus, deductions, paid_date, status, receipt_url)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+            [id, month, year, basic || 0, bonus || 0, deductions || 0, paid_date || null, status || 'Paid', receiptUrl]
+        );
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        console.error('Error adding payroll record:', err);
+        res.status(500).json({ message: 'Server Error: ' + err.message });
+    }
+});
+
+// PUT: update a payroll record
+router.put('/:id/payroll/:payrollId', documentUpload, async (req, res) => {
+    try {
+        const { payrollId } = req.params;
+        const { month, year, basic, bonus, deductions, paid_date, status } = req.body;
+        const receiptUrl = req.file ? `/uploads/${req.file.filename}` : null;
+
+        const result = await query(
+            `UPDATE teacher_payroll
+             SET month=$1, year=$2, basic=$3, bonus=$4, deductions=$5, paid_date=$6, status=$7,
+                 receipt_url = COALESCE($8, receipt_url)
+             WHERE id=$9 RETURNING *`,
+            [month, year, basic || 0, bonus || 0, deductions || 0, paid_date || null, status || 'Paid', receiptUrl, payrollId]
+        );
+        if (result.rowCount === 0) return res.status(404).json({ message: 'Record not found' });
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error('Error updating payroll record:', err);
+        res.status(500).json({ message: 'Server Error: ' + err.message });
+    }
+});
+
+// DELETE: a payroll record
+router.delete('/:id/payroll/:payrollId', async (req, res) => {
+    try {
+        const { payrollId } = req.params;
+        const result = await query('DELETE FROM teacher_payroll WHERE id=$1 RETURNING *', [payrollId]);
+        if (result.rowCount === 0) return res.status(404).json({ message: 'Record not found' });
+        res.json({ message: 'Deleted successfully' });
+    } catch (err) {
+        console.error('Error deleting payroll record:', err);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
 module.exports = router;

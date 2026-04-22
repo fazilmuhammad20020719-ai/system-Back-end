@@ -1,7 +1,30 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const { logActivity } = require('../utils/activityLogger');
+
+// Create upload directory if it doesn't exist
+const uploadDir = path.join(__dirname, '../uploads/exam_papers');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// Configure Multer for exam papers
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        // e.g., exam_1_student_12_167888.pdf
+        const ext = path.extname(file.originalname);
+        const fileName = `exam_${req.params.id}_student_${req.params.studentId}_${Date.now()}${ext}`;
+        cb(null, fileName);
+    }
+});
+const upload = multer({ storage });
 
 // 1. GET ALL EXAMS (With Filtering & Parts)
 router.get('/', async (req, res) => {
@@ -37,40 +60,68 @@ router.get('/', async (req, res) => {
         const exams = await Promise.all(result.rows.map(async (exam) => {
             try {
                 // Fetch Parts
-                const partsRes = await db.query(`SELECT * FROM exam_parts WHERE exam_id = $1 ORDER BY exam_date, start_time`, [exam.id]);
-                exam.parts = partsRes.rows;
+                const partsRes = await db.query(`SELECT * FROM exam_parts WHERE exam_id = $1 ORDER BY exam_date DESC, start_time DESC`, [exam.id]);
+                exam.parts = partsRes.rows.reverse(); // keep display order ASC, but pick last for status
 
                 const now = new Date();
-                // Safe Date Parsing
                 if (!exam.exam_date) return exam;
 
-                const dateObj = new Date(exam.exam_date);
-                if (isNaN(dateObj.getTime())) return exam;
+                // Bug Fix 2: For multi-part exams, determine status from the LAST part's date/time,
+                // not the first part (exam_date on main record). An exam is only "Completed"
+                // when ALL parts are done.
+                let statusDateStr, statusEndTime, statusStartTime;
+                if (exam.parts && exam.parts.length > 0) {
+                    // Last part (already ordered ASC, so last index = last part)
+                    const lastPart = exam.parts[exam.parts.length - 1];
+                    const firstPart = exam.parts[0];
+                    const lastDateObj = new Date(lastPart.exam_date);
+                    const firstDateObj = new Date(firstPart.exam_date);
+                    if (isNaN(lastDateObj.getTime())) return exam;
+                    // Bug Fix 1: Use local date components (not toISOString which converts to UTC)
+                    // to avoid a timezone mismatch when building the comparison datetime.
+                    const toLocalDateStr = (d) => {
+                        const yr  = d.getFullYear();
+                        const mo  = String(d.getMonth() + 1).padStart(2, '0');
+                        const dy  = String(d.getDate()).padStart(2, '0');
+                        return `${yr}-${mo}-${dy}`;
+                    };
+                    statusDateStr   = toLocalDateStr(lastDateObj);
+                    statusEndTime   = lastPart.end_time   || '23:59:00';
+                    statusStartTime = firstPart.start_time || '00:00:00';
+                    // Use first part's date for the start comparison
+                    const firstDateStr = toLocalDateStr(firstDateObj);
+                    statusStartTime = `${firstDateStr}T${firstPart.start_time || '00:00:00'}`;
+                    statusEndTime   = `${statusDateStr}T${statusEndTime}`;
+                } else {
+                    // Single exam (no parts row) — use main record
+                    const dateObj = new Date(exam.exam_date);
+                    if (isNaN(dateObj.getTime())) return exam;
+                    const toLocalDateStr = (d) => {
+                        const yr  = d.getFullYear();
+                        const mo  = String(d.getMonth() + 1).padStart(2, '0');
+                        const dy  = String(d.getDate()).padStart(2, '0');
+                        return `${yr}-${mo}-${dy}`;
+                    };
+                    const dateStr = toLocalDateStr(dateObj);
+                    statusStartTime = `${dateStr}T${exam.start_time || '00:00:00'}`;
+                    statusEndTime   = `${dateStr}T${exam.end_time   || '23:59:00'}`;
+                }
 
-                const dateStr = dateObj.toISOString().split('T')[0];
-
-                // Ensure times are valid strings or default safely
-                const endTimeVal = exam.end_time || '23:59:00';
-                const startTimeVal = exam.start_time || '00:00:00';
-
-                const endDateTimeStr = `${dateStr}T${endTimeVal}`;
-                const startDateTimeStr = `${dateStr}T${startTimeVal}`;
-
-                const examEnd = new Date(endDateTimeStr);
-                const examStart = new Date(startDateTimeStr);
+                const examStart = new Date(statusStartTime);
+                const examEnd   = new Date(statusEndTime);
 
                 let dynamicStatus = exam.status;
 
-                // Logic: If status is not Cancelled, check time
+                // Logic: If status is not Cancelled, determine from current time
                 if (dynamicStatus !== 'Cancelled') {
                     if (now > examEnd) {
                         dynamicStatus = 'Completed';
                     } else if (now >= examStart && now <= examEnd) {
                         dynamicStatus = 'Ongoing';
                     } else {
-                        if (dynamicStatus !== 'Upcoming' && now < examStart) {
-                            dynamicStatus = 'Upcoming';
-                        }
+                        // Bug Fix 3: In this else branch, now < examStart is always true.
+                        // Unconditionally set Upcoming — the old guard was incorrect.
+                        dynamicStatus = 'Upcoming';
                     }
                 }
 
@@ -150,7 +201,7 @@ router.post('/', async (req, res) => {
         if (stIds && stIds.length > 0) {
             for (const studId of stIds) {
                 await client.query(
-                    `INSERT INTO exam_results (exam_id, student_id, status) VALUES ($1, $2, 'Present')
+                    `INSERT INTO exam_results (exam_id, student_id, status) VALUES ($1, $2, NULL)
                      ON CONFLICT (exam_id, student_id) DO NOTHING`,
                     [examId, studId]
                 );
@@ -185,11 +236,11 @@ router.put('/:id', async (req, res) => {
         await client.query('BEGIN');
         const { id } = req.params;
         const {
-            title, programId, subjectId,
+            title, programId, subjectId, grade, examType,
             parts, studentIds, supervisorId
         } = req.body;
 
-        // Extract Schedule
+        // Extract Schedule from first part for the main exam record
         let examDate, startTime, endTime, place;
         if (parts && Array.isArray(parts) && parts.length > 0) {
             const mainPart = parts[0];
@@ -199,21 +250,55 @@ router.put('/:id', async (req, res) => {
             place = mainPart.venue;
         }
 
-        // 1. Update Exam Details
+        // 1. Update Main Exam Record (including grade and exam_type)
         await client.query(
             `UPDATE exams 
              SET title = $1, program_id = $2, subject_id = $3, 
-                 exam_date = $4, start_time = $5, end_time = $6, venue = $7, supervisor_id = $8
-             WHERE id = $9`,
-            [title, programId, subjectId, examDate, startTime, endTime, place, supervisorId, id]
+                 exam_date = $4, start_time = $5, end_time = $6, venue = $7, supervisor_id = $8,
+                 grade = $9, exam_type = $10
+             WHERE id = $11`,
+            [title, programId, subjectId, examDate, startTime, endTime, place, supervisorId, grade || null, examType || null, id]
         );
 
-        // 2. Update Students (Optional: Replace or Add new? simpliest is Add new, ignore existing)
-        // Note: Removing students who are already graded is risky. We will only ADD new selected students.
-        if (studentIds && studentIds.length > 0) {
+        // 2. Sync Exam Parts — delete old parts and re-insert updated ones
+        await client.query(`DELETE FROM exam_parts WHERE exam_id = $1`, [id]);
+        if (parts && Array.isArray(parts)) {
+            for (const part of parts) {
+                await client.query(
+                    `INSERT INTO exam_parts (exam_id, name, exam_date, start_time, end_time, venue)
+                     VALUES ($1, $2, $3, $4, $5, $6)`,
+                    [id, part.name, part.date, part.startTime, part.endTime, part.venue]
+                );
+            }
+        }
+
+        // 3. Update Students:
+        //    a) Remove any UNGRADED students that are no longer in the updated selection
+        //    b) Add newly selected students
+        if (studentIds && Array.isArray(studentIds)) {
+            // Remove un-graded students that were de-selected
+            if (studentIds.length > 0) {
+                await client.query(
+                    `DELETE FROM exam_results
+                     WHERE exam_id = $1
+                       AND student_id != ALL($2::int[])
+                       AND marks_obtained IS NULL
+                       AND grade IS NULL`,
+                    [id, studentIds]
+                );
+            } else {
+                // No students selected at all — remove all ungraded assignments
+                await client.query(
+                    `DELETE FROM exam_results
+                     WHERE exam_id = $1 AND marks_obtained IS NULL AND grade IS NULL`,
+                    [id]
+                );
+            }
+
+            // Add newly selected students (skip existing ones)
             for (const studId of studentIds) {
                 await client.query(
-                    `INSERT INTO exam_results (exam_id, student_id, status) VALUES ($1, $2, 'Present')
+                    `INSERT INTO exam_results (exam_id, student_id, status) VALUES ($1, $2, NULL)
                      ON CONFLICT (exam_id, student_id) DO NOTHING`,
                     [id, studId]
                 );
@@ -221,7 +306,18 @@ router.put('/:id', async (req, res) => {
         }
 
         await client.query('COMMIT');
-        res.json({ message: "Exam updated successfully" });
+
+        // Return updated exam data so the frontend can immediately reflect changes
+        const updatedExam = await db.query(`
+            SELECT e.*, p.name as program_name, s.name as subject_name, t.name as supervisor_name
+            FROM exams e
+            LEFT JOIN programs p ON e.program_id = p.id
+            LEFT JOIN subjects s ON e.subject_id = s.id
+            LEFT JOIN teachers t ON e.supervisor_id = t.id
+            WHERE e.id = $1
+        `, [id]);
+
+        res.json({ message: "Exam updated successfully", exam: updatedExam.rows[0] });
 
     } catch (err) {
         await client.query('ROLLBACK');
@@ -263,6 +359,186 @@ router.get('/:id/details', async (req, res) => {
     }
 });
 
+// GET EXAM ATTENDANCE
+router.get('/:id/attendance', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await db.query(
+            'SELECT student_id, status FROM exam_results WHERE exam_id = $1',
+            [id]
+        );
+        res.json(result.rows);
+    } catch (err) {
+        console.error("Error fetching exam attendance:", err);
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
+// UPDATE EXAM ATTENDANCE (Single)
+router.post('/attendance', async (req, res) => {
+    try {
+        const { examId, studentId, status } = req.body;
+        await db.query(
+            `UPDATE exam_results SET status = $1 WHERE exam_id = $2 AND student_id = $3`,
+            [status, examId, studentId]
+        );
+        res.json({ message: "Attendance updated" });
+    } catch (err) {
+        console.error("Error saving exam attendance:", err);
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
+// UPDATE EXAM ATTENDANCE (Bulk)
+router.post('/:id/attendance/bulk', async (req, res) => {
+    const client = await db.pool.connect();
+    try {
+        await client.query('BEGIN');
+        const { id } = req.params;
+        const { attendanceData } = req.body; // { studentId: status }
+        
+        for (const [studentId, status] of Object.entries(attendanceData)) {
+            await client.query(
+                `UPDATE exam_results 
+                 SET status = CASE 
+                     WHEN $1 = 'Absent' THEN 'Absent'
+                     WHEN marks_obtained IS NOT NULL THEN (CASE WHEN CAST(marks_obtained AS INTEGER) >= 50 THEN 'Pass' ELSE 'Fail' END)
+                     ELSE $1
+                 END
+                 WHERE exam_id = $2 AND student_id = $3`,
+                [status, id, studentId]
+            );
+        }
+        
+        // Mark attendance as taken for this exam
+        await client.query(`UPDATE exams SET attendance_taken = true WHERE id = $1`, [id]);
+        
+        await client.query('COMMIT');
+        res.json({ message: "Bulk attendance updated" });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error("Error saving bulk exam attendance:", err);
+        res.status(500).json({ error: "Server error" });
+    } finally {
+        client.release();
+    }
+});
+
+// GET ALL RESULTS FOR A SPECIFIC STUDENT
+router.get('/student/:studentId/results', async (req, res) => {
+    try {
+        const { studentId } = req.params;
+        const result = await db.query(`
+            SELECT
+                e.id as exam_id,
+                e.title as exam_name,
+                e.exam_date,
+                e.total_marks,
+                e.slot_id,
+                sl.name as slot_name,
+                s.name as subject_name,
+                p.name as program_name,
+                er.marks_obtained,
+                er.grade,
+                er.status,
+                er.remarks,
+                er.paper_url
+            FROM exam_results er
+            JOIN exams e ON er.exam_id = e.id
+            LEFT JOIN subjects s ON e.subject_id = s.id
+            LEFT JOIN programs p ON e.program_id = p.id
+            LEFT JOIN examination_slots sl ON e.slot_id = sl.id
+            WHERE er.student_id = $1
+            ORDER BY sl.name ASC, e.exam_date DESC
+        `, [studentId]);
+        res.json(result.rows);
+    } catch (err) {
+        console.error("Error fetching student results:", err);
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
+// GET EXAM RESULTS
+router.get('/:id/results', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await db.query(`
+            SELECT 
+                st.id as student_id, 
+                st.name as student_name, 
+                er.marks_obtained, 
+                er.grade, 
+                er.status, 
+                er.remarks,
+                er.paper_url
+            FROM exam_results er
+            JOIN students st ON er.student_id = st.id
+            WHERE er.exam_id = $1
+            ORDER BY st.name ASC
+        `, [id]);
+        res.json(result.rows);
+    } catch (err) {
+        console.error("Error fetching exam results:", err);
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
+// UPLOAD EXAM PAPER
+router.post('/:id/results/:studentId/upload', upload.single('paper'), async (req, res) => {
+    try {
+        const { id, studentId } = req.params;
+        if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+        const fileUrl = `uploads/exam_papers/${req.file.filename}`;
+        
+        // Update database with URL
+        await db.query(
+            `UPDATE exam_results SET paper_url = $1 WHERE exam_id = $2 AND student_id = $3`,
+            [fileUrl, id, studentId]
+        );
+
+        // Mark results as submitted for this exam
+        await db.query(`UPDATE exams SET results_submitted = true WHERE id = $1`, [id]);
+
+        res.json({ message: "File uploaded successfully", url: fileUrl });
+    } catch (err) {
+        console.error("Error uploading exam paper:", err);
+        res.status(500).json({ error: "Upload failed" });
+    }
+});
+
+// DELETE EXAM PAPER
+router.delete('/:id/results/:studentId/upload', async (req, res) => {
+    try {
+        const { id, studentId } = req.params;
+        
+        // Find existing paper URL
+        const result = await db.query(
+            `SELECT paper_url FROM exam_results WHERE exam_id = $1 AND student_id = $2`,
+            [id, studentId]
+        );
+
+        const currentUrl = result.rows[0]?.paper_url;
+        if (currentUrl) {
+            const filePath = path.join(__dirname, '..', currentUrl);
+            if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+            }
+            
+            // Clear URL in DB
+            await db.query(
+                `UPDATE exam_results SET paper_url = NULL WHERE exam_id = $1 AND student_id = $2`,
+                [id, studentId]
+            );
+        }
+
+        res.json({ message: "File deleted successfully" });
+    } catch (err) {
+        console.error("Error deleting exam paper:", err);
+        res.status(500).json({ error: "Delete failed" });
+    }
+});
+
 // 5. SAVE MARKS
 router.post('/:id/results', async (req, res) => {
     const { results, status } = req.body;
@@ -274,6 +550,9 @@ router.post('/:id/results', async (req, res) => {
                 [r.marks_obtained, r.grade, r.status, r.remarks, req.params.id, r.id]
             );
         }
+
+        // Mark results as submitted for this exam
+        await db.query(`UPDATE exams SET results_submitted = true WHERE id = $1`, [req.params.id]);
         if (status) {
             await db.query(`UPDATE exams SET status = $1 WHERE id = $2`, [status, req.params.id]);
         }

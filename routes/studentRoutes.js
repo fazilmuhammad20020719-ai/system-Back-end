@@ -203,15 +203,27 @@ router.get('/', async (req, res) => {
             SELECT s.id, s.name, s.status, s.contact_number as contact, s.photo_url, s.guardian_name as guardian,
             s.dob, s.gender, s.nic, s.email,
             -- Legacy fields for backward compatibility (taking the first one found or arbitrary)
-            MAX(p.name) as program, 
+            MAX(p.name) as program,
+            -- Primary program_id for filtering (from student's own column as fallback)
+            COALESCE(
+                (SELECT se2.program_id FROM student_enrollments se2 WHERE se2.student_id = s.id ORDER BY se2.admission_date DESC LIMIT 1),
+                s.program_id
+            ) as program_id,
             MAX(se.current_year) as "currentYear", 
             MAX(se.session_year) as session,
+
+            -- All program IDs this student is enrolled in (for multi-program matching)
+            COALESCE(
+                ARRAY_AGG(DISTINCT se.program_id) FILTER (WHERE se.program_id IS NOT NULL),
+                ARRAY[]::int[]
+            ) as program_ids,
             
             -- Aggregated Enrollments
             COALESCE(
                JSON_AGG(
                    JSON_BUILD_OBJECT(
                        'program', p.name,
+                       'program_id', se.program_id,
                        'status', se.status,
                        'year', se.current_year,
                        'session', se.session_year
@@ -319,7 +331,7 @@ router.get('/:id/attendance', async (req, res) => {
             queryText += ' AND date >= $2 AND date <= $3';
             queryParams.push(startDate, endDate);
         }
-        
+
         queryText += ' ORDER BY date DESC';
 
         // Fetch records for this student from student_attendance table
